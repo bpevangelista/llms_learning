@@ -2,7 +2,6 @@
 
 ### Background
 
-<details>
 <summary>RNN (1986), LSTM (1997), GRU (2014), Attention for Sequence Learning</summary>
 
 Sequence learning is used to learn from sequence data such as texts, audio and
@@ -31,21 +30,42 @@ Gated Recurrent Unit (GRU), another variant, simplify the LSTM architecture by c
 However, both LSTM and GRU remain limited by sequence length, requiring large networks and considerable processing time to expand the dependency window. (TODO Add Ref)
 
 Prior to the Transformers architecture, attention was another technique explored to improve modeling of dependencies in RNNs. [[Google's Neural Machine Translation](https://arxiv.org/abs/1609.08144), [AnotherRef](https://arxiv.org/abs/1601.06733)]
+</br></br>
 
-</details>
-
-### Transformer Model (2017) – Multi-Head Self-Attention & MLP/FFN
+### Transformer Model (2017) – Multi-Head Self-Attention & FFN/MLP
 
 [Attention Is All You Need Paper](https://arxiv.org/pdf/1706.03762.pdf)
 
-<details>
-<summary>Multi-Head Attention Pytorch Code (Naive)</summary>
 
 ```python
-import math
-import torch
-import torch.nn as nn
+# Transformer parameters
+vocab_size = 32 * 1024  # 32K words/tokens embeddings in vocabulary
+embedding_dim = 4096    # 4096 embedding dimension (dmodel)
+max_seq_length = 2048   # 2048 maximum input tokens
+```
 
+#### Positional Encoding
+
+```python
+def build_absolute_positional_encoding_naive():
+    positions = torch.arange(max_seq_length)    # [0,1,2, ... max_seq_length]
+    positions = positions.unsqueeze(1)          # [0,1,2, ... max_seq_length][]
+    embeddings = torch.arange(embedding_dim)    # [0,1,2, ... embedding_dim]
+    
+    # pos/10000^(2i/dmodel)
+    angle = positions / torch.pow(10000, (2 * embeddings / embedding_dim))
+    
+    # PE(pos, 2i+0) = sin( pos/10000^(2i/dmodel) )
+    # PE(pos, 2i+1) = cos( pos/10000^(2i/dmodel) )
+    positional_encoding = torch.empty(max_seq_length, embedding_dim)
+    positional_encoding[:, 0::2] = torch.sin(angle[:, 0::2])
+    positional_encoding[:, 1::2] = torch.cos(angle[:, 1::2])
+    return positional_encoding
+```
+
+#### Multi-Head Attention
+
+```python
 vocab_size = 32 * 1024  # 32K words vocabulary (word -> embed)
 embedding_dim = 4096    # 4096 dimension embedding (dmodel)
 max_seq_length = 2048   # 2048 maximum input tokens
@@ -82,46 +102,39 @@ def multi_head_attention_naive(input_embd: torch.Tensor,
     mh_attn_out = mh_attn_out.transpose(0, 1).reshape(seq_length, embedding_dim)
     return mh_attn_out
 ```
-</details>
 
-<details>
-<summary>Normalization and Feed Forward (aka MLP) Code (Naive)</summary>
+#### Normalization
 
 ```python
-hidden_size = 4 * embedding_dim
-ffn_linear1 = nn.Linear(embedding_dim, hidden_size)
-ffn_linear2 = nn.Linear(hidden_size, embedding_dim)
+# Does mean and std normalization, then applies learnable weight and bias
+norm_layer1 = nn.LayerNorm(embedding_dim) # learnable
+norm_layer2 = nn.LayerNorm(embedding_dim) # learnable
+
+def multi_head_attention_add_and_norm_naive(input_embd: torch.Tensor):
+    return norm_layer1(input_embd)
+
+def feed_forward_add_norm_naive(input_embd: torch.Tensor):
+  return norm_layer2(input_embd)
+```
+
+
+#### Feed Forward (aka MLP)
+
+```python
+ffn_linear1 = nn.Linear(embedding_dim, 4 * embedding_dim)
+ffn_linear2 = nn.Linear(4 * embedding_dim, embedding_dim)
 ffn_act = nn.ReLU()
-
+ffn_drop = nn.Dropout(0.1) # discard random 10% to avoid overfit 
+  
 def feed_forward_naive(input_embd: torch.Tensor):
-    hidden_states = ffn_act(ffn_linear1(input_embd))
-    return ffn_linear2(hidden_states)
+    hidden_states = ffn_linear1(input_embd)
+    hidden_states = ffn_drop(ffn_act(hidden_states))
+    hidden_states = ffn_linear2(hidden_states)
+    return hidden_states
 ```
-</details>
 
-<details>
-<summary>Positional Encoding Code (Naive)</summary>
 
-```python
-def build_absolute_positional_encoding_naive():
-    positions = torch.arange(max_seq_length)    # [0,1,2, ... max_seq_length]
-    positions = positions.unsqueeze(1)          # [0,1,2, ... max_seq_length][]
-    embeddings = torch.arange(embedding_dim)    # [0,1,2, ... embedding_dim]
-    
-    # pos/10000^(2i/dmodel)
-    angle = positions / torch.pow(10000, (2 * embeddings / embedding_dim))
-    
-    # PE(pos, 2i+0) = sin( pos/10000^(2i/dmodel) )
-    # PE(pos, 2i+1) = cos( pos/10000^(2i/dmodel) )
-    positional_encoding = torch.empty(max_seq_length, embedding_dim)
-    positional_encoding[:, 0::2] = torch.sin(angle[:, 0::2])
-    positional_encoding[:, 1::2] = torch.cos(angle[:, 1::2])
-    return positional_encoding
-```
-</details>
-
-<details>
-<summary>Everything Together (Naive)</summary>
+#### Everything Together (Naive)
 
 ```python
 input_seq_length = 16 # 16 tokens
@@ -131,9 +144,11 @@ positional_encoding = build_absolute_positional_encoding_naive()
 input_embd += positional_encoding[:input_embd.size(0)]
 
 mh_attn_out = multi_head_attention_naive(input_embd, num_heads=32)
-ffn_out = feed_forward_naive(mh_attn_out)
+hidden_states = multi_head_attention_add_and_norm_naive(mh_attn_out)
+
+ffn_out = feed_forward_naive(hidden_states)
+hidden_states = feed_forward_add_and_norm_naive(ffn_out)
 ```
-</details>
 
 ### GPT Model (2018, OpenAI) 
 - ~120M parameters
