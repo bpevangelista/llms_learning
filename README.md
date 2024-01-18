@@ -167,6 +167,9 @@ hidden_states = feed_forward_add_and_norm_naive(ffn_out)
 - Mixture of Experts on FFN
 
 
+### S4 (2021, Stanford)
+- https://srush.github.io/annotated-s4/
+
 ### Llama-1 & 2 (2023, Meta)
 - Moved Back RMS Normalization
 - Rotary Positional Encoder (Q, K only)
@@ -190,6 +193,14 @@ hidden_states = feed_forward_add_and_norm_naive(ffn_out)
 ### Phi1 & 2 (2023, Microsoft)
 - 2.5B parameters
 - TODO
+
+
+### Mamba (2023, Stanford)
+
+https://github.com/havenhq/mamba-chat
+
+https://arxiv.org/abs/2312.00752
+
 
 
 TODO Good
