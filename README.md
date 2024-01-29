@@ -66,10 +66,6 @@ def build_absolute_positional_encoding_naive():
 #### Multi-Head Attention
 
 ```python
-vocab_size = 32 * 1024  # 32K words vocabulary (word -> embed)
-embedding_dim = 4096    # 4096 dimension embedding (dmodel)
-max_seq_length = 2048   # 2048 maximum input tokens
-
 # q, k, v – layers were learned during training
 q = nn.Linear(embedding_dim, embedding_dim, bias=False)
 k = nn.Linear(embedding_dim, embedding_dim, bias=False)
