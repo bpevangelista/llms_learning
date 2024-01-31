@@ -29,13 +29,14 @@ Gated Recurrent Unit (GRU), another variant, simplify the LSTM architecture by c
 
 However, both LSTM and GRU remain limited by sequence length, requiring large networks and considerable processing time to expand the dependency window. (TODO Add Ref)
 
-Prior to the Transformers architecture, attention was another technique explored to improve modeling of dependencies in RNNs. [[Google's Neural Machine Translation](https://arxiv.org/abs/1609.08144), [AnotherRef](https://arxiv.org/abs/1601.06733)]
+Prior to the Transformers architecture, attention was another technique explored to improve modeling of dependencies in RNNs. [[Google's Neural Machine Translation](https://arxiv.org/abs/1609.08144), [Ref](https://arxiv.org/abs/1601.06733)]
 </br></br>
 
 ### Transformer Model (2017) – Multi-Head Self-Attention & FFN/MLP
 
 [Attention Is All You Need Paper](https://arxiv.org/pdf/1706.03762.pdf)
 
+![vanilla to modern transformer](transformer_vanilla_modern.png)
 
 ```python
 # Transformer parameters
@@ -47,7 +48,7 @@ max_seq_length = 2048   # 2048 maximum input tokens
 #### Positional Encoding
 
 ```python
-def build_absolute_positional_encoding_naive():
+def build_absolute_positional_encoding_naive() -> torch.Tensor:
     positions = torch.arange(max_seq_length)    # [0,1,2, ... max_seq_length]
     positions = positions.unsqueeze(1)          # [0,1,2, ... max_seq_length][]
     embeddings = torch.arange(embedding_dim)    # [0,1,2, ... embedding_dim]
@@ -102,15 +103,15 @@ def multi_head_attention_naive(input_embd: torch.Tensor,
 #### Normalization
 
 ```python
-# Does mean and std normalization, then applies learnable weight and bias
-norm_layer1 = nn.LayerNorm(embedding_dim) # learnable
-norm_layer2 = nn.LayerNorm(embedding_dim) # learnable
+# Does mean and std normalization, then applies learned weight and bias
+post_attn_norm_layer = nn.LayerNorm(embedding_dim) # learnable
+post_ffn_norm_layer = nn.LayerNorm(embedding_dim) # learnable
 
-def multi_head_attention_add_and_norm_naive(input_embd: torch.Tensor):
-    return norm_layer1(input_embd)
+def post_attention_norm(input_embd: torch.Tensor) -> torch.Tensor:
+    return post_attn_norm_layer(input_embd)
 
-def feed_forward_add_norm_naive(input_embd: torch.Tensor):
-  return norm_layer2(input_embd)
+def post_feed_forward_norm(input_embd: torch.Tensor) -> torch.Tensor:
+  return post_ffn_norm_layer(input_embd)
 ```
 
 
@@ -120,7 +121,7 @@ def feed_forward_add_norm_naive(input_embd: torch.Tensor):
 ffn_linear1 = nn.Linear(embedding_dim, 4 * embedding_dim)
 ffn_linear2 = nn.Linear(4 * embedding_dim, embedding_dim)
 ffn_act = nn.ReLU()
-ffn_drop = nn.Dropout(0.1) # discard random 10% to avoid overfit 
+ffn_drop = nn.Dropout(0.0) # Training-only, discard X% to avoid overfit
   
 def feed_forward_naive(input_embd: torch.Tensor):
     hidden_states = ffn_linear1(input_embd)
@@ -133,17 +134,26 @@ def feed_forward_naive(input_embd: torch.Tensor):
 #### Everything Together (Naive)
 
 ```python
-input_seq_length = 16 # 16 tokens
-input_embd = torch.rand(input_seq_length, embedding_dim)
-
+prompt = 'Which fruits do you like?'
+input_ids = tokenizer(prompt, return_tensors="pt")
 positional_encoding = build_absolute_positional_encoding_naive()
-input_embd += positional_encoding[:input_embd.size(0)]
 
-mh_attn_out = multi_head_attention_naive(input_embd, num_heads=32)
-hidden_states = multi_head_attention_add_and_norm_naive(mh_attn_out)
+while not has_finished:
+    hidden_states = vocab_embedding(input_ids)
 
-ffn_out = feed_forward_naive(hidden_states)
-hidden_states = feed_forward_add_and_norm_naive(ffn_out)
+    for layer in decoder:
+        residual = hidden_states
+
+        seq_length = hidden_states.size(0)
+        hidden_states = hidden_states + positional_encoding[:seq_length]
+
+        hidden_states = multi_head_attention_naive(hidden_states, num_heads=32)
+        hidden_states = residual + post_attention_norm(hidden_states)
+
+        hidden_states = feed_forward_naive(hidden_states)
+        hidden_states = residual + post_feed_forward_norm(hidden_states)
+
+    logits = lm_head(hidden_states)
 ```
 
 ### GPT Model (2018, OpenAI) 
