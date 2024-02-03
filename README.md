@@ -36,7 +36,7 @@ Prior to the Transformers architecture, attention was another technique explored
 
 [Attention Is All You Need Paper](https://arxiv.org/pdf/1706.03762.pdf)
 
-![vanilla to modern transformer](transformer_vanilla_modern.png)
+![vanilla to modern transformer](transformer_vanilla_to_modern.png)
 
 ```python
 # Transformer parameters
@@ -135,7 +135,7 @@ def feed_forward_naive(input_embd: torch.Tensor):
 
 ```python
 prompt = 'Which fruits do you like?'
-input_ids = tokenizer(prompt, return_tensors="pt")
+input_ids = tokenizer.encode(prompt, return_tensors="pt")
 positional_encoding = build_absolute_positional_encoding_naive()
 
 while not has_finished:
