@@ -198,8 +198,8 @@ def fine_tune_llama2(deepspeed_config=None):
     'pad_token_id': tokenizer.eos_token_id,
     'eos_token_id': tokenizer.eos_token_id,
 
-    'input_ids': input_ids.to('cuda:0'),
-    'attention_mask': attention_mask.to('cuda:0'),
+    'input_ids': input_ids.to('torch_extensions:0'),
+    'attention_mask': attention_mask.to('torch_extensions:0'),
   }
   output_texts = tokenizer.batch_decode(model.generate(**predict_params), skip_special_tokens=True)
   print(output_texts[0])
@@ -286,7 +286,7 @@ tokenizer.pad_token = tokenizer.eos_token
 
 model = LlamaForCausalLM.from_pretrained(
   f'{BASE_PATH}/llama2/Llama-2-7b-chat-hf-fine-tune',
-  device_map='cuda:0',
+  device_map='torch_extensions:0',
   torch_dtype=torch.float16,
   token=HF_ACCESS_TOKEN,
   use_flash_attention_2=True,
@@ -306,8 +306,8 @@ predict_params = {
   'pad_token_id': tokenizer.eos_token_id,
   'eos_token_id': tokenizer.eos_token_id,
 
-  'input_ids': input_ids.to('cuda:0'),
-  'attention_mask': attention_mask.to('cuda:0'),
+  'input_ids': input_ids.to('torch_extensions:0'),
+  'attention_mask': attention_mask.to('torch_extensions:0'),
 }
 
 final_model = peft_model if peft_model is not None else model
