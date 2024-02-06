@@ -43,7 +43,7 @@ def read_images_as_tensor(images_uri: list[str], device: str = 'torch_extensions
 
 
 def torch_conv2d():
-    conv = nn.Conv2d(in_channels=3, out_channels=3, kernel_size=3, stride=1)
+    conv = nn.Conv2d(in_channels=3, out_channels=3, kernel_size=3, stride=1, padding=0)
     conv.weight.data = torch.ones(3, 3, 3, 3) * (0.11111 / 3)
     conv.bias.data = torch.zeros(3)
     return conv
@@ -57,16 +57,18 @@ def to_cpp_f32(tensor: torch.Tensor):
 
 
 def main():
-    device = 'cuda'
+    device = 'cpu'
     torch.set_default_device(device)
     image_tensor = read_images_as_tensor(images_uri=['./tests/cow_rgb.jpeg'], device=device)[0]
 
     conv = torch_conv2d()
 
     x0 = conv(image_tensor)
-    x1 = nn_api.conv2d_fwd(image_tensor, conv.weight.data, conv.bias.data)
+    x1 = nn_api.conv2d_aten_fwd(image_tensor, conv.weight.data, conv.bias.data)
+    x2 = nn_api.conv2d_cpp_fwd(image_tensor, conv.weight.data, conv.bias.data)
 
-    iio.imwrite('tests/cow_gray0.jpeg', (x0.squeeze().permute(1, 2, 0).cpu() * 255).byte().numpy())
-    iio.imwrite('tests/cow_gray1.jpeg', (x1.squeeze().permute(1, 2, 0).cpu() * 255).byte().numpy())
+    iio.imwrite('tests/cow_x0.jpeg', (x0.squeeze().permute(1, 2, 0).cpu() * 255).byte().numpy())
+    iio.imwrite('tests/cow_x1.jpeg', (x1.squeeze().permute(1, 2, 0).cpu() * 255).byte().numpy())
+    iio.imwrite('tests/cow_x2.jpeg', (x2.squeeze().permute(1, 2, 0).cpu() * 255).byte().numpy())
 
 main()
