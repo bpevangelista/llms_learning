@@ -1,4 +1,4 @@
-import time, torch
+import gc, time, torch
 
 import utils
 from model_attention_naive import AttentionNaive
@@ -20,6 +20,13 @@ mha_sdpa = AttentionSdpa(embedding_dim, num_heads)
 norm_layer = LayerNorm(embedding_dim)
 
 
+def free_mem():
+    gc.collect()
+    torch.cuda.empty_cache()
+    torch.cuda.reset_peak_memory_stats()
+
+
+@torch.inference_mode()
 def test_attn(hidden_states: torch.Tensor, attention_obj: any, layers: int, steps: int, title: str | None):
     memory_usage = torch.cuda.max_memory_allocated() / 1024 ** 2
     print(f'\n{title:16} START Peak CUDA Mem: {memory_usage:.2f} MB')
@@ -33,8 +40,6 @@ def test_attn(hidden_states: torch.Tensor, attention_obj: any, layers: int, step
     end = time.perf_counter()
 
     memory_usage = torch.cuda.max_memory_allocated() / 1024 ** 2
-    torch.cuda.empty_cache()
-    torch.cuda.reset_peak_memory_stats()
 
     print(f'{title:16} END   Peak CUDA Mem: {memory_usage:.2f} MB')
     print(f'{title:16}       Elapsed {(end - start) * 1000:.2f}ms')
@@ -42,7 +47,7 @@ def test_attn(hidden_states: torch.Tensor, attention_obj: any, layers: int, step
 
 
 def main():
-    #model_name = 'facebook/opt-350m'
+    # model_name = 'facebook/opt-350m'
     model_name = 'mistralai/Mistral-7B-v0.1'
     tokenizer = utils.get_tokenizer(model_name)
     vocab_embedding = utils.get_vocab_embed(model_name)
@@ -51,14 +56,27 @@ def main():
     tokens = tokenizer(prompts, padding=True, return_tensors='pt')
     hidden_states = vocab_embedding(tokens.input_ids)
 
+    out1 = hidden_states.clone()
+    out2 = hidden_states.clone()
+    out3 = hidden_states.clone()
+
+    free_mem()
     out1 = test_attn(hidden_states, mha_naive, 32, 100, 'NAIVE')
+    free_mem()
     out2 = test_attn(hidden_states, mha_xformers, 32, 100, 'XFORMERS')
+    free_mem()
     out3 = test_attn(hidden_states, mha_sdpa, 32, 100, 'SDPA')
 
+    # Note MSE will vary due to different positional encoding
     mse1 = torch.mean((out1 - out2) ** 2)
     mse2 = torch.mean((out1 - out3) ** 2)
     mse3 = torch.mean((out2 - out3) ** 2)
-    print(f'\n{mse1}, {mse2}, {mse3}')
+    print(f'\nMSEs {mse1}, {mse2}, {mse3}')
 
+
+print(
+    f'Torch ({torch.__version__}), CPUs: {torch.get_num_threads()}, ' +
+    f'CUDA_GPUs: {torch.cuda.device_count()}, ' +
+    f'MPS_GPU: {torch.backends.mps.is_available()}')
 
 main()

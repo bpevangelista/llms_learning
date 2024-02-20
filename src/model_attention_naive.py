@@ -47,6 +47,7 @@ class AttentionNaive(nn.Module):
     def forward(self, hidden_states: torch.Tensor, position_ids: torch.Tensor):
         batches = hidden_states.size(0)
         seq_length = hidden_states.size(1)
+
         hidden_states = hidden_states + self.pos_encoding[:seq_length]
 
         q1 = F.linear(hidden_states, self.q_proj)
