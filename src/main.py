@@ -8,15 +8,15 @@ from model_blocks import LayerNorm
 torch.set_default_dtype(torch.float16)
 torch.set_default_device('cuda:0')
 
-# Transformer parameters
+# Transformer Parameters
 vocab_size = 32 * 1024  # 32K words/tokens embeddings in vocabulary
 max_seq_length = 2048  # 2048 maximum input tokens
 embedding_dim = 4096  # OPT 512, Llama2 4096 embedding dimension (dmodel)
 num_heads = 32  # 16 or 32
 
-mha_naive = AttentionNaive(embedding_dim, num_heads)
-mha_xformers = AttentionXformers(embedding_dim, num_heads)
-mha_sdpa = AttentionSdpa(embedding_dim, num_heads)
+# Test Configuration
+num_layers = 32
+num_steps = 128
 norm_layer = LayerNorm(embedding_dim)
 
 
@@ -27,7 +27,7 @@ def free_mem():
 
 
 @torch.inference_mode()
-def test_attn(hidden_states: torch.Tensor, attention_obj: any, layers: int, steps: int, title: str | None):
+def test_attn(hidden_states: torch.Tensor, attentions: list[any], steps: int, title: str | None):
     memory_usage = torch.cuda.max_memory_allocated() / 1024 ** 2
     print(f'\n{title:16} START Peak CUDA Mem: {memory_usage:.2f} MB')
 
@@ -35,8 +35,8 @@ def test_attn(hidden_states: torch.Tensor, attention_obj: any, layers: int, step
     hidden = None
     for step in range(steps):
         hidden = hidden_states.clone()
-        for layer in range(layers):
-            hidden = attention_obj(norm_layer(hidden), None) + hidden
+        for attention in attentions:
+            hidden = attention(norm_layer(hidden), None) + hidden
     end = time.perf_counter()
 
     memory_usage = torch.cuda.max_memory_allocated() / 1024 ** 2
@@ -61,11 +61,19 @@ def main():
     out3 = hidden_states.clone()
 
     free_mem()
-    out1 = test_attn(hidden_states, mha_naive, 32, 100, 'NAIVE')
+    mha_naive = [AttentionNaive(embedding_dim, num_heads) for _ in range(num_layers)]
+    out1 = test_attn(hidden_states, mha_naive, num_steps, 'NAIVE')
+    mha_naive.clear()
+
     free_mem()
-    out2 = test_attn(hidden_states, mha_xformers, 32, 100, 'XFORMERS')
+    mha_xformers = [AttentionXformers(embedding_dim, num_heads) for _ in range(num_layers)]
+    out2 = test_attn(hidden_states, mha_xformers, num_steps, 'XFORMERS')
+    mha_xformers.clear()
+
     free_mem()
-    out3 = test_attn(hidden_states, mha_sdpa, 32, 100, 'SDPA')
+    mha_sdpa = [AttentionSdpa(embedding_dim, num_heads) for _ in range(num_layers)]
+    out3 = test_attn(hidden_states, mha_sdpa, num_steps, 'SDPA')
+    mha_sdpa.clear()
 
     # Note MSE will vary due to different positional encoding
     mse1 = torch.mean((out1 - out2) ** 2)
@@ -77,6 +85,6 @@ def main():
 print(
     f'Torch ({torch.__version__}), CPUs: {torch.get_num_threads()}, ' +
     f'CUDA_GPUs: {torch.cuda.device_count()}, ' +
-    f'MPS_GPU: {torch.backends.mps.is_available()}')
+    f'MPS_GPU: {torch.backends.mps.is_available()}\n')
 
 main()
