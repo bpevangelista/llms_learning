@@ -30,6 +30,13 @@ q = nn.Linear(embedding_dim, embedding_dim, bias=False)
 k = nn.Linear(embedding_dim, embedding_dim, bias=False)
 v = nn.Linear(embedding_dim, embedding_dim, bias=False)
 
+def multi_head_attention(
+        q_states : torch.Tensor,
+        k_states: torch.Tensor,
+        v_states: torch.Tensor,
+        ) -> torch.Tensor:
+    
+
 def multi_head_attention_naive(input_embd: torch.Tensor,
                                num_heads: int) -> torch.Tensor:
     q1 = q(input_embd)
