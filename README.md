@@ -156,6 +156,80 @@ while not has_finished:
     logits = lm_head(hidden_states)
 ```
 
+### Multi-Head Self-Attention (2024) SOTA Implementations
+
+[Efficient Attention Reference List](https://gwern.net/note/attention#state)
+
+Research Implementations
+- O(n) instead of O(n^2) time and space<br />
+[2022: Rethinking Attention with Performers](https://arxiv.org/pdf/2009.14794.pdf)<br />
+[2021: Self-attention Does Not Need O(n2) Memory](https://arxiv.org/abs/2112.05682)<br />
+
+
+Production Implementation (Jan24): (Huggingface Transformers, vLLM)
+
+```python
+qkv_weight = torch.cat((q_proj, k_proj, v_proj), dim=0)
+
+hidden_states = vocab_embedding(input_ids) # [batches, seq_length, embedding_dim]
+batches = hidden_states.size(0)
+seq_length = hidden_states.size(1)
+
+# Shared Attention Preamble Processing
+def mha_proj_and_pos_encode(hidden_states: torch.Tensor, position_ids: torch.Tensor, num_heads: int):
+    # QKV Projection
+    qkv = F.linear(hidden_states, qkv_weight)
+    query, key, value = qkv.split([embedding_dim, embedding_dim, embedding_dim], dim=-1)
+
+    # Relative Rotary Position Embedding
+    query, key = apply_rotary_pos_emb(query, key, position_ids)
+
+    # Note: Non KV-Cached Step
+
+    # Multi-Head Reshape. [batch, seq, embd] -> [batch*seq, num_heads, head_size]
+    query = query.view(-1, num_heads, head_size)
+    key = key.view(-1, num_heads, head_size)
+    value = value.view(-1, num_heads, head_size)
+    return query, key, value
+```
+
+```python
+# XFormers Memory Efficient Attention
+def mha_xformers(hidden_states: torch.Tensor, position_ids: torch.Tensor, num_heads: int) -> torch.Tensor:
+    query, key, value = mha_proj_and_pos_encode(hidden_states, position_ids, num_heads)
+    
+    # Causal Attention Mask (all seqs have same length due to padding) 
+    attn_bias = BlockDiagonalCausalMask.from_seqlens([seq_length] * batches)
+
+    mh_attn_out = xformers.ops.memory_efficient_attention_forward(
+        query.unsqueeze(0), key.unsqueeze(0), value.unsqueeze(0), attn_bias=attn_bias,
+    )
+
+    mh_attn_out = mh_attn_out.reshape(batches, seq_length, embedding_dim)
+    mh_attn_out = F.linear(mh_attn_out, out_proj)
+    return mh_attn_out
+```
+
+```python
+# Torch SDPA Attention
+def mha_sdpa(hidden_states: torch.Tensor, position_ids: torch.Tensor, num_heads: int) -> torch.Tensor:
+    query, key, value = mha_proj_and_pos_encode(hidden_states, position_ids, num_heads)
+
+    mh_attn_out = torch.nn.functional.scaled_dot_product_attention(
+        query, key, value, attn_mask=None, is_causal=True,
+    )
+
+    mh_attn_out = mh_attn_out.reshape(batches, seq_length, embedding_dim)
+    mh_attn_out = F.linear(mh_attn_out, out_proj)
+    return mh_attn_out
+```
+Test: 100 iterations of 32 attention layers (xavier_normal_ initialized)
+- Baseline (Naive)   
+- ~2.5x - xformers speed-up
+- ~3.5x - sdpa speed-up
+
+## LLMs References and Innovations
+
 ### GPT Model (2018, OpenAI) 
 - ~120M parameters
 - Encoder Only
