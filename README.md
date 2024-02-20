@@ -176,7 +176,8 @@ batches = hidden_states.size(0)
 seq_length = hidden_states.size(1)
 
 # Shared Attention Preamble Processing
-def mha_proj_and_pos_encode(hidden_states: torch.Tensor, position_ids: torch.Tensor, num_heads: int):
+def mha_proj_and_pos_encode(hidden_states: torch.Tensor, position_ids: torch.Tensor,
+                            num_heads: int = 32):
     # QKV Projection
     qkv = F.linear(hidden_states, qkv_weight)
     query, key, value = qkv.split([embedding_dim, embedding_dim, embedding_dim], dim=-1)
@@ -195,8 +196,8 @@ def mha_proj_and_pos_encode(hidden_states: torch.Tensor, position_ids: torch.Ten
 
 ```python
 # XFormers Memory Efficient Attention
-def mha_xformers(hidden_states: torch.Tensor, position_ids: torch.Tensor, num_heads: int) -> torch.Tensor:
-    query, key, value = mha_proj_and_pos_encode(hidden_states, position_ids, num_heads)
+def mha_xformers(hidden_states: torch.Tensor, position_ids: torch.Tensor) -> torch.Tensor:
+    query, key, value = mha_proj_and_pos_encode(hidden_states, position_ids)
     
     # Causal Attention Mask (all seqs have same length due to padding) 
     attn_bias = BlockDiagonalCausalMask.from_seqlens([seq_length] * batches)
@@ -212,8 +213,8 @@ def mha_xformers(hidden_states: torch.Tensor, position_ids: torch.Tensor, num_he
 
 ```python
 # Torch SDPA Attention
-def mha_sdpa(hidden_states: torch.Tensor, position_ids: torch.Tensor, num_heads: int) -> torch.Tensor:
-    query, key, value = mha_proj_and_pos_encode(hidden_states, position_ids, num_heads)
+def mha_sdpa(hidden_states: torch.Tensor, position_ids: torch.Tensor) -> torch.Tensor:
+    query, key, value = mha_proj_and_pos_encode(hidden_states, position_ids)
 
     mh_attn_out = torch.nn.functional.scaled_dot_product_attention(
         query, key, value, attn_mask=None, is_causal=True,
