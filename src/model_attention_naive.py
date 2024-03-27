@@ -55,7 +55,7 @@ class AttentionNaive(nn.Module):
         v1 = F.linear(hidden_states, self.v_proj)
 
         # We work on per-head sequences
-        # Rearrange as [batches, num_heads, seq_length, head_length]
+        # Rearrange as [batches, seq_length, num_heads, head_size]
         q2 = q1.view(-1, seq_length, self.num_heads, self.head_size).transpose(1, 2)
         k2 = k1.view(-1, seq_length, self.num_heads, self.head_size).transpose(1, 2)
         v2 = v1.view(-1, seq_length, self.num_heads, self.head_size).transpose(1, 2)
