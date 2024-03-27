@@ -7,7 +7,12 @@ ext_modules = [
         sources=[
             'cstr/mha.cpp',
             'cstr/mha_kernel.cu',
-        ])
+        ],
+        include_dirs=[
+            #'/home/bpevangelista/projects/cutlass/include',
+            '../../../cutlass/include',
+        ],
+    )
 ]
 setup(
     name='mha',
