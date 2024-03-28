@@ -1,3 +1,5 @@
+#include <tuple>
+
 #ifndef SAFE_FREE
 #define SAFE_FREE(MPTR) [MPTR] { if (MPTR != nullptr) { free(MPTR); } }()
 #endif
@@ -5,6 +7,10 @@
 #ifndef SAFE_CUDA_FREE
 #define SAFE_CUDA_FREE(MPTR) [MPTR] { if (MPTR != nullptr) { cudaFree(MPTR); } }()
 #endif
+
+inline int32_t CEIL_DIV(const int32_t num, const int32_t div) {
+    return (num + div - 1) / div;
+}
 
 
 template <typename T>
@@ -45,22 +51,33 @@ void printTensor(T* tensor, int32_t rows, int32_t columns) {
     printf("\n");
 }
 
-template <typename TCPU, typename TGPU>
-uint32_t debugCompareAndPrint(TCPU* cpuTensorPtr, TGPU* gpuTensorPtr, int32_t numElements, float EPSILON = 0.001f) {
-    int32_t sizeInBytes = numElements * sizeof(TGPU);
-    TGPU* gpuTensorCpuMapped = reinterpret_cast<TGPU*>(malloc(sizeInBytes));
+template <typename T>
+std::tuple<uint32_t, double> debugCompare(T* cpuTensorPtr, T* gpuTensorPtr, T** optGpuTensorCpuPtr,
+    int32_t numElements, float EPSILON = 0.001f, bool printDeltas = false) {
+    int32_t sizeInBytes = numElements * sizeof(T);
+    T* gpuTensorCpuMapped = reinterpret_cast<T*>(malloc(sizeInBytes));
     cudaMemcpy(gpuTensorCpuMapped, gpuTensorPtr, sizeInBytes, cudaMemcpyDeviceToHost);
 
+    double mse = 0.0;
     uint32_t diffCount = 0;
     for (int i=0; i<numElements; i++) {
         float cpuVal = static_cast<float>(cpuTensorPtr[i]);
         float gpuVal = static_cast<float>(gpuTensorCpuMapped[i]);
+        mse += pow(cpuVal - gpuVal, 2);
         if (fabs(cpuVal - gpuVal) > EPSILON) {
-            printf("EPSILON ERR %8d: %9.4f\t%9.4f\n", i, cpuVal, gpuVal);
+            if (printDeltas) {
+                printf("Epsilon-err @%8d: %9.4f\t%9.4f\n", i, cpuVal, gpuVal);
+            }
             diffCount++;
         }
     }
 
-    SAFE_FREE(gpuTensorCpuMapped);
-    return diffCount;
+    mse /= numElements;
+
+    if (optGpuTensorCpuPtr != nullptr) {
+        *optGpuTensorCpuPtr = gpuTensorCpuMapped;
+    } else {
+        SAFE_FREE(gpuTensorCpuMapped);
+    }
+    return {diffCount, mse};
 }
