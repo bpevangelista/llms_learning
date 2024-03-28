@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include "helpers.cu"
 
-#include <cutlass/cutlass.h>
 
 // Parallel on output index [Rows, Rows] = [Rows, Cols] * [Cols, Rows]
 // matA is row-major and matB col-major for continuous memory access
@@ -86,13 +85,8 @@ int gemm_main(float EPSILON = 0.001f) {
     printf("Kernel runtime: %.2fms\n", kernelMs);
 
     // Validate CPU vs GPU computation
-    debugCompareAndPrint(cpuMatOut, matOut, matRows * matRows, EPSILON);
-
-    // Debug
-    //printMat(cpuMatA, matRows, matCols);
-    //printMat(cpuMatB, matRows, matCols);
-    //printMat(cpuMatOut, matRows, matRows);
-    //printMat(gpuToCpuMatOut, matRows, matRows);
+    debugCompare<T>(cpuMatOut, matOut, nullptr, matRows * matRows, EPSILON);
+    printf("Deltas: %d %.3f\n", deltas, deltas/(float)(matSizeM*matSizeN));
 
     SAFE_FREE(cpuMatA);
     SAFE_FREE(cpuMatB);
