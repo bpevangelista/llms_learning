@@ -9,9 +9,9 @@
 __global__ void gemm_kernel1x1(const float* matA, const float* matB, float* matOut,
     const int32_t matSizeM, const int32_t matSizeN, const int32_t matSizeK) {
 
-    // Using 1D block
+    // 1D thread group block in 1D dispatch grid
     int32_t index = blockIdx.x * blockDim.x + threadIdx.x;
-    // Out is Rows x Rows
+    // Assumes output matrix (matSizeM x matSizeN) evenly divides by kernel size
     int32_t row = index / matSizeN;
     int32_t col = index % matSizeN;
 
@@ -43,12 +43,12 @@ int main() {
         return -1; // error
     }
 
-    // Empiric block size of 128 threads (rational, SM can dispatch 4xWarps of 32 threads)
-    dim3 blockSize = dim3(128, 1, 1);
-    dim3 blocksCount = dim3((matSizeM * matSizeN) / blockSize.x);
+    // Empiric dispatch block size of 128 threads (rational, SM can dispatch 4xWarps of 32 threads)
+    dim3 threadGroupSize = dim3(128, 1, 1);
+    dim3 threadGroupsCount = dim3((matSizeM * matSizeN) / threadGroupSize.x);
     // For simplicity, matrix size must be multiple of block size
-    assert((matSizeM * matSizeN) % blockSize.x == 0);
-    int32_t sharedMemorySize = 0;
+    assert((matSizeM * matSizeN) % threadGroupSize.x == 0);
+    int32_t dynamicSharedMemSize = 0;
 
     // Calculate GEMM on GPU
     cudaStream_t stream;
@@ -58,7 +58,8 @@ int main() {
     cudaEventCreate(&kernelStop);
 
     cudaEventRecord(kernelStart, 0);
-    gemm_kernel1x1<<<blocksCount, blockSize, sharedMemorySize, stream>>>(matA, matB, matOut, matSizeM, matSizeN, matSizeK);
+    gemm_kernel1x1<<<threadGroupsCount, threadGroupSize, dynamicSharedMemSize, stream>>>(
+        matA, matB, matOut, matSizeM, matSizeN, matSizeK);
     cudaEventRecord(kernelStop, 0);
 
     // Calculate GEMM on CPU
@@ -81,10 +82,10 @@ int main() {
     cudaEventElapsedTime(&kernelMs, kernelStart, kernelStop);
     cudaEventDestroy(kernelStart);
     cudaEventDestroy(kernelStop);
-    printf("Kernel runtime: %.2fms\n", kernelMs);
+    printf("Kernel runtime: %.2fms\n", kernelMs); // 950ms on 3060TI for 2k-4k-gemm, MSE 0
 
     // Validate CPU vs GPU computation
-    auto [diffs, mse] = debugCompare<T>(cpuMatOut, matOut, nullptr, matSizeM * matSizeN, EPSILON);
+    auto [diffs, mse] = debugCompare<float>(cpuMatOut, matOut, nullptr, matSizeM * matSizeN);
     printf("Epsilon-diffs: count %d, perc %.3f. MSE %.4f\n", diffs, diffs/(float)(matSizeM * matSizeN), mse);
 
     SAFE_FREE(cpuMatA);
