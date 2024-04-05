@@ -1,0 +1,14 @@
+nvcc -O2 -o s1_gemm_naive s1_gemm_naive.cu -I../../../../cutlass/include --gpu-architecture sm_80 --expt-relaxed-constexpr
+./s1_gemm_naive
+
+nvcc -O2 -o s2_gemm_naive_templated ./s2_gemm_naive_templated.cu $1 -I../../../../cutlass/include --gpu-architecture sm_80 --expt-relaxed-constexpr
+./s2_gemm_naive_templated
+
+nvcc -O2 -o s3_gemm_coalesced2d s3_gemm_coalesced2d.cu -I../../../../cutlass/include --gpu-architecture sm_80 --expt-relaxed-constexpr
+./s3_gemm_coalesced2d
+
+nvcc -O2 -o s4_gemm_tiled s4_gemm_tiled.cu -I../../../../cutlass/include --gpu-architecture sm_80 --expt-relaxed-constexpr
+./s4_gemm_tiled
+
+#nvcc -O2 -o s5_gemm_smem_tiled s5_gemm_smem_tiled.cu -I../../../../cutlass/include --gpu-architecture sm_80 --expt-relaxed-constexpr
+#./s5_gemm_smem_tiled
