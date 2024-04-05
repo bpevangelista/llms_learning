@@ -7,20 +7,24 @@
 
 // One thread per output element [matSizeM, matSizeN] = [matSizeM, matSizeK] * [matSizeK, matSizeN]
 // matA (row-major) and matB (col-major) allows continuous memory access
-template <typename T, typename Acc>
-__global__ void gemm_kernel1x1(const T* __restrict__ matA, const T* __restrict__ matB, T* __restrict__ matOut,
-    const int32_t matSizeM, const int32_t matSizeN, const int32_t matSizeK) {
+template <
+    typename T, typename Acc,
+    int32_t matSizeM, int32_t matSizeN, int32_t matSizeK        // Matrix A & B sizes
+>
+__global__ void gemm_kernel1x1(const T* __restrict__ matA, const T* __restrict__ matB, T* __restrict__ matOut) {
 
-    // Using 1D block
+    // 1D thread group block in 1D dispatch grid
     int32_t index = blockIdx.x * blockDim.x + threadIdx.x;
-    // Out is matSizeM x matSizeN
+    // Assumes output matrix (matSizeM x matSizeN) evenly divides by kernel size
     int32_t row = index / matSizeN;
     int32_t col = index % matSizeN;
 
     Acc acc = static_cast<Acc>(0.0f);
     for (int32_t k=0; k < matSizeK; k++) {
         // Row-major * Column-major
-        acc = static_cast<Acc>(matA[row * matSizeK + k] * matB[col * matSizeK + k]) + acc;
+        acc += static_cast<Acc>(
+            matA[row * matSizeK + k] *
+            matB[col * matSizeK + k]);
     }
 
     matOut[index] = static_cast<T>(acc);
@@ -46,12 +50,12 @@ int gemm_main(float EPSILON = 0.001f) {
         return -1; // error
     }
 
-    // Empiric block size of 128 threads (rational, SM can dispatch 4xWarps of 32 threads)
-    dim3 blockSize = dim3(128, 1, 1);
-    dim3 blocksCount = dim3((matSizeM * matSizeN) / blockSize.x);
+    // Empiric dispatch block size of 128 threads (rational, SM can dispatch 4xWarps of 32 threads)
+    dim3 threadGroupSize = dim3(128, 1, 1);
+    dim3 threadGroupsCount = dim3((matSizeM * matSizeN) / threadGroupSize.x);
     // For simplicity, matrix size must be multiple of block size
-    assert((matSizeM * matSizeN) % blockSize.x == 0);
-    int32_t sharedMemorySize = 0;
+    assert((matSizeM * matSizeN) % threadGroupSize.x == 0);
+    int32_t dynamicSharedMemSize = 0;
 
     // Calculate on GPU
     cudaStream_t stream;
@@ -61,7 +65,10 @@ int gemm_main(float EPSILON = 0.001f) {
     cudaEventCreate(&kernelStop);
 
     cudaEventRecord(kernelStart, 0);
-    gemm_kernel1x1<T, Acc><<<blocksCount, blockSize, sharedMemorySize, stream>>>(matA, matB, matOut, matSizeM, matSizeN, matSizeK);
+    gemm_kernel1x1
+        <T, Acc, matSizeM, matSizeN, matSizeK>
+        <<<threadGroupsCount, threadGroupSize, dynamicSharedMemSize, stream>>>
+        (matA, matB, matOut);
     cudaEventRecord(kernelStop, 0);
 
     // Calculate on CPU
