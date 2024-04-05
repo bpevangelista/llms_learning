@@ -5,30 +5,32 @@
 
 // One thread per output element [matSizeM, matSizeN] = [matSizeM, matSizeK] * [matSizeK, matSizeN]
 // matA (row-major) and matB (col-major) allows continuous memory access
-template <typename T, typename Acc>
-__global__ void gemm_kernel1x1(const T* __restrict__ matA, const T* __restrict__ matB, T* __restrict__ matOut,
-    const int32_t matSizeM, const int32_t matSizeN, const int32_t matSizeK,
-    const int32_t kernelSizeK) {
+template <
+    typename T, typename Acc,
+    int32_t matSizeM, int32_t matSizeN, int32_t matSizeK                // Matrix A & B sizes
+>
+__global__ void gemm_kernel1x1(const T* __restrict__ matA, const T* __restrict__ matB, T* __restrict__ matOut) {
 
-    // 2D block in 3D dispatch grid
+    // 2D thread group block in 2D dispatch grid
     int32_t row = blockIdx.x * blockDim.x + threadIdx.x;
     int32_t col = blockIdx.y * blockDim.y + threadIdx.y;
-    int32_t accBlockIndex = blockIdx.z * blockDim.z;
+    // Handle output matrix (matSizeM x matSizeN) not evenly divisible by kernel size
+    if (row >= matSizeM || col >= matSizeN) {
+        return; // Early exit
+    }
 
     if (row < matSizeM && col < matSizeN) {
         int32_t index = row * matSizeN + col;
 
-        Acc acc = static_cast<Acc>(matOut[index]);
-        for (int32_t k=0; k < kernelSizeK; k++) {
-            int32_t accIndex = accBlockIndex * kernelSizeK + k;
-
+        Acc acc = {0};
+        for (int32_t k=0; k < matSizeK; k++) {
             // Row-major * Column-major
             acc += static_cast<Acc>(
-                matA[row * matSizeK + accIndex] *
-                matB[col * matSizeK + accIndex]);
+                matA[row * matSizeK + k] *
+                matB[col * matSizeK + k]);
         }
-        matOut[index] = static_cast<T>(acc);
 
+        matOut[index] = static_cast<T>(acc);
     }
 }
 
@@ -39,8 +41,6 @@ int gemm_main(float EPSILON = 0.001f) {
     constexpr int32_t matSizeM = 2048; // 2k context
     constexpr int32_t matSizeK = 4096; // 4k token dimension
     constexpr int32_t matSizeN = 2048; // 2k context
-    // Per-Kernel Computation Size
-    constexpr int32_t kernelBlockSizeK = 32;
 
     // Keep CPU copy of data for validation later
     T *cpuMatA, *cpuMatB, *cpuMatOut;
@@ -54,14 +54,12 @@ int gemm_main(float EPSILON = 0.001f) {
         return -1; // error
     }
 
-    // Empiric block size 8x16 == 128 threads (match previous sample)
+    // Empiric dispatch block size 8x16 == 128 threads (match previous sample)
     dim3 blockSize = dim3(8, 16, 1);
     dim3 blocksCount = dim3(
-        CEIL_DIV(matSizeM, blockSize.x)
-        , CEIL_DIV(matSizeN, blockSize.y)
-        , CEIL_DIV(matSizeK, kernelBlockSizeK)
-        );
-    int32_t sharedMemorySize = 0; // Still not using it
+        CEIL_DIV(matSizeM, blockSize.x),
+        CEIL_DIV(matSizeN, blockSize.y));
+    int32_t dynamicSharedMemSize = 0; // Still not using it
 
     // Calculate on GPU
     cudaStream_t stream;
@@ -71,8 +69,10 @@ int gemm_main(float EPSILON = 0.001f) {
     cudaEventCreate(&kernelStop);
 
     cudaEventRecord(kernelStart, 0);
-    gemm_kernel1x1<T, Acc><<<blocksCount, blockSize, sharedMemorySize, stream>>>(
-        matA, matB, matOut, matSizeM, matSizeN, matSizeK, kernelBlockSizeK);
+    gemm_kernel1x1
+        <T, Acc, matSizeM, matSizeN, matSizeK>
+        <<<blocksCount, blockSize, dynamicSharedMemSize, stream>>>
+        (matA, matB, matOut);
     cudaEventRecord(kernelStop, 0);
 
     // Calculate on CPU
