@@ -86,7 +86,7 @@ int main() {
 
     // Validate CPU vs GPU computation
     auto [diffs, mse] = debugCompare<float>(cpuMatOut, matOut, nullptr, matSizeM * matSizeN);
-    printf("Epsilon-diffs: count %d, perc %.3f. MSE %.4f\n", diffs, diffs/(float)(matSizeM * matSizeN), mse);
+    printf("Epsilon-diffs: count %d, perc %.3f, MSE %.4f\n", diffs, diffs/(float)(matSizeM * matSizeN), mse);
 
     SAFE_FREE(cpuMatA);
     SAFE_FREE(cpuMatB);

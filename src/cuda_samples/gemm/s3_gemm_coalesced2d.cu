@@ -105,7 +105,7 @@ int gemm_main(float EPSILON = 0.001f) {
     // Validate CPU vs GPU computation
     T* matOutCpuPtr;
     auto [diffs, mse] = debugCompare(cpuMatOut, matOut, &matOutCpuPtr, matSizeM * matSizeN, EPSILON);
-    printf("Epsilon-diffs: count %d, perc %.3f. MSE %.4f\n", diffs, diffs/(float)(matSizeM * matSizeN), mse);
+    printf("Epsilon-diffs: count %d, perc %.3f, MSE %.4f\n", diffs, diffs/(float)(matSizeM * matSizeN), mse);
 
     // Debug small matrices
     if (matSizeM <= 32 && matSizeN <= 32) {

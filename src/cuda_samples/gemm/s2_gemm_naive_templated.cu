@@ -100,7 +100,7 @@ int gemm_main(float EPSILON = 0.001f) {
 
     // Validate CPU vs GPU computation
     auto [diffs, mse] = debugCompare<T>(cpuMatOut, matOut, nullptr, matSizeM * matSizeN, EPSILON);
-    printf("Epsilon-diffs: count %d, perc %.3f. MSE %.4f\n", diffs, diffs/(float)(matSizeM * matSizeN), mse);
+    printf("Epsilon-diffs: count %d, perc %.3f, MSE %.4f\n", diffs, diffs/(float)(matSizeM * matSizeN), mse);
 
     SAFE_FREE(cpuMatA);
     SAFE_FREE(cpuMatB);

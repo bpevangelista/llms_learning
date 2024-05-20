@@ -24,22 +24,27 @@ __global__ void gemm_kernel_mn(const T* __restrict__ matA, const T* __restrict__
     constexpr int32_t kernelSizeK = 16;
     Acc acc[kernelSizeM*kernelSizeN] = {0};
 
-    #pragma unroll // Too many registers?
-    for (int32_t k=0; k < matSizeK; k += kernelSizeK) {
-        // Compute kernelSizeM x kernelSizeN x kernelSizeK
+    for (int32_t i=0; i < matSizeK; i += kernelSizeK) {
+
+        // Compute MxNxK kernel (can also use specialized instruction, e.g. mma.m16n8k16)
+        #pragma unroll
         for (int ki=0; ki < kernelSizeM; ki++) {
+            #pragma unroll
             for (int kj=0; kj < kernelSizeN; kj++) {
+                #pragma unroll
                 for (int kk=0; kk < kernelSizeK; kk++) {
                     acc[ki * kernelSizeN + kj] += static_cast<Acc>(
-                        matA[(row + ki) * matSizeK + k + kk] *
-                        matB[(col + kj) * matSizeK + k + kk]);
+                        matA[(row + ki) * matSizeK + i + kk] *
+                        matB[(col + kj) * matSizeK + i + kk]);
                 }
             }
         }
+
     }
 
     #pragma unroll
     for (int i=0; i < kernelSizeM; i++) {
+        #pragma unroll
         for (int j=0; j < kernelSizeN; j++) {
             matOut[(row + i) * matSizeN + col + j] = acc[i * kernelSizeN + j];
         }
@@ -120,7 +125,7 @@ int gemm_main(float EPSILON = 0.001f) {
     // Validate CPU vs GPU computation
     T* matOutCpuPtr;
     auto [diffs, mse] = debugCompare(cpuMatOut, matOut, &matOutCpuPtr, matSizeM * matSizeN, EPSILON);
-    printf("Epsilon-diffs: count %d, perc %.3f. MSE %.4f\n", diffs, diffs/(float)(matSizeM * matSizeN), mse);
+    printf("Epsilon-diffs: count %d, perc %.3f, MSE %.4f\n", diffs, diffs/(float)(matSizeM * matSizeN), mse);
 
     // Debug small matrices
     if (matSizeM <= 32 && matSizeN <= 32) {
@@ -141,6 +146,10 @@ int gemm_main(float EPSILON = 0.001f) {
 }
 
 int main() {
-    //return gemm_main<float, float>(0.001);    // 100ms on 3060TI for 2k-4k-gemm, MSE 0
-    return gemm_main<half, float>(0.1f);       // 100ms on 3060TI for 2k-4k-gemm, MSE 0.0007 or 0.02 (k=32)
+    //return gemm_main<float, float>(0.001);     // 25ms on 3060TI for 2k-4k-gemm, MSE 0
+    //return gemm_main<half, float>(0.1f);       // 24ms on 3060TI for 2k-4k-gemm, MSE 0.0007 or 0.02 (k=32)
+
+    // With pragma unroll
+    //return gemm_main<float, float>(0.001);     // 11ms on 3060TI for 2k-4k-gemm, MSE 0
+    return gemm_main<half, float>(0.1f);       // 12ms on 3060TI for 2k-4k-gemm, MSE 0.0007 or 0.02 (k=32)
 }
