@@ -95,16 +95,16 @@ __global__ void gemm_kernel_mn(const T* __restrict__ matA, const T* __restrict__
     constexpr int32_t kernelSizeK = 16;
     Acc acc[kernelSizeM*kernelSizeN] = {0};
 
-    #pragma unroll
     for (int32_t k=0; k < matSizeK; k += kernelSizeK) {
         // load per thread items: 4?
         //__syncthreads();
 
-        // Compute kernelSizeM x kernelSizeN x kernelSizeK
+        // Compute MxNxK kernel (can also use specialized instruction, e.g. mma.m16n8k16)
+        #pragma unroll
         for (int ki=0; ki < kernelSizeM; ki++) {
+            #pragma unroll
             for (int kj=0; kj < kernelSizeN; kj++) {
-
-                // Two blocks to use mma instruction?
+                #pragma unroll
                 for (int kk=0; kk < kernelSizeK; kk++) {
                     acc[ki * kernelSizeN + kj] += static_cast<Acc>(
                         matA[(row + ki) * matSizeK + k + kk] *
@@ -116,6 +116,7 @@ __global__ void gemm_kernel_mn(const T* __restrict__ matA, const T* __restrict__
 
     #pragma unroll
     for (int i=0; i < kernelSizeM; i++) {
+        #pragma unroll
         for (int j=0; j < kernelSizeN; j++) {
             matOut[(row + i) * matSizeN + col + j] = acc[i * kernelSizeN + j];
         }
