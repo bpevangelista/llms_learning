@@ -57,21 +57,10 @@ int main() {
     cudaEventCreate(&kernelStart);
     cudaEventCreate(&kernelStop);
 
-    cudaEventRecord(kernelStart, 0);
+    cudaEventRecord(kernelStart, stream);
     gemm_kernel1x1<<<threadGroupsCount, threadGroupSize, dynamicSharedMemSize, stream>>>(
         matA, matB, matOut, matSizeM, matSizeN, matSizeK);
-    cudaEventRecord(kernelStop, 0);
-
-    // Calculate GEMM on CPU
-    for (int i=0; i<matSizeM; ++i) {
-        for (int j=0; j<matSizeN; ++j) {
-            float acc = 0.0f;
-            for (int k=0; k<matSizeK; ++k) {
-                acc = cpuMatA[i * matSizeK + k] * cpuMatB[j * matSizeK + k] + acc;
-            }
-            cpuMatOut[i * matSizeN + j] = acc;
-        }
-    }
+    cudaEventRecord(kernelStop, stream);
 
     // Wait for GPU (just for correctness as CPU is much slower)
     cudaError_t cudaStatus = cudaStreamSynchronize(stream);
@@ -84,9 +73,22 @@ int main() {
     cudaEventDestroy(kernelStop);
     printf("Kernel runtime: %.2fms\n", kernelMs); // 950ms on 3060TI for 2k-4k-gemm, MSE 0
 
+#ifdef CPU_MATH_VALIDATION_ENABLED
+    // Calculate GEMM on CPU
+    for (int i=0; i<matSizeM; ++i) {
+        for (int j=0; j<matSizeN; ++j) {
+            float acc = 0.0f;
+            for (int k=0; k<matSizeK; ++k) {
+                acc = cpuMatA[i * matSizeK + k] * cpuMatB[j * matSizeK + k] + acc;
+            }
+            cpuMatOut[i * matSizeN + j] = acc;
+        }
+    }
+
     // Validate CPU vs GPU computation
     auto [diffs, mse] = debugCompare<float>(cpuMatOut, matOut, nullptr, matSizeM * matSizeN);
     printf("Epsilon-diffs: count %d, perc %.3f, MSE %.4f\n", diffs, diffs/(float)(matSizeM * matSizeN), mse);
+#endif
 
     SAFE_FREE(cpuMatA);
     SAFE_FREE(cpuMatB);

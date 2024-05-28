@@ -64,12 +64,12 @@ int gemm_main(float EPSILON = 0.001f) {
     cudaEventCreate(&kernelStart);
     cudaEventCreate(&kernelStop);
 
-    cudaEventRecord(kernelStart, 0);
+    cudaEventRecord(kernelStart, stream);
     gemm_kernel1x1
         <T, Acc, matSizeM, matSizeN, matSizeK>
         <<<threadGroupsCount, threadGroupSize, dynamicSharedMemSize, stream>>>
         (matA, matB, matOut);
-    cudaEventRecord(kernelStop, 0);
+    cudaEventRecord(kernelStop, stream);
 
     // Calculate on CPU
     for (int i=0; i<matSizeM; ++i) {
