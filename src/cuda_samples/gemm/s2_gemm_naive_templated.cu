@@ -71,6 +71,18 @@ int gemm_main(float EPSILON = 0.001f) {
         (matA, matB, matOut);
     cudaEventRecord(kernelStop, stream);
 
+    // Wait for GPU (just for correctness as CPU is much slower)
+    cudaError_t cudaStatus = cudaStreamSynchronize(stream);
+    cudaStreamDestroy(stream);
+
+    // Calculate runtime (ideally avg over many runs)
+    float kernelMs = 0.0f;
+    cudaEventElapsedTime(&kernelMs, kernelStart, kernelStop);
+    cudaEventDestroy(kernelStart);
+    cudaEventDestroy(kernelStop);
+    printf("Kernel runtime: %.2fms\n", kernelMs);
+
+#ifdef CPU_MATH_VALIDATION_ENABLED
     // Calculate on CPU
     for (int i=0; i<matSizeM; ++i) {
         for (int j=0; j<matSizeN; ++j) {
@@ -87,20 +99,10 @@ int gemm_main(float EPSILON = 0.001f) {
         }
     }
 
-    // Wait for GPU (just for correctness as CPU is much slower)
-    cudaError_t cudaStatus = cudaStreamSynchronize(stream);
-    cudaStreamDestroy(stream);
-
-    // Calculate runtime (ideally avg over many runs)
-    float kernelMs = 0.0f;
-    cudaEventElapsedTime(&kernelMs, kernelStart, kernelStop);
-    cudaEventDestroy(kernelStart);
-    cudaEventDestroy(kernelStop);
-    printf("Kernel runtime: %.2fms\n", kernelMs);
-
     // Validate CPU vs GPU computation
     auto [diffs, mse] = debugCompare<T>(cpuMatOut, matOut, nullptr, matSizeM * matSizeN, EPSILON);
     printf("Epsilon-diffs: count %d, perc %.3f, MSE %.4f\n", diffs, diffs/(float)(matSizeM * matSizeN), mse);
+#endif
 
     SAFE_FREE(cpuMatA);
     SAFE_FREE(cpuMatB);
