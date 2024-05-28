@@ -1,0 +1,9 @@
+rm *.ncu* &>/dev/null
+rm *.nsys* &>/dev/null
+rm s1_gemm_naive &>/dev/null
+rm s2_gemm_naive_templated &>/dev/null
+rm s3_gemm_coalesced2d &>/dev/null
+rm s4_gemm_tiled &>/dev/null
+rm s5_gemm_mma &>/dev/null
+rm s5_gemm_mma_slow &>/dev/null
+rm s6_gemm_smem_mma &>/dev/null

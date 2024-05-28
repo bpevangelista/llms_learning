@@ -1,6 +1,20 @@
-filename="$1"
-# release build
-nvcc -O2 -o ${filename%.*} $1 -I../../../../cutlass/include --gpu-architecture sm_80 --expt-relaxed-constexpr
+build="$1"
+filename="$2"
 
-# debug build
-#nvcc -g -O0 -DDEBUG -o ${filename%.*} $1 -I../../../../cutlass/include --gpu-architecture sm_80 --expt-relaxed-constexpr
+# Release
+if [ "$build" == "release" ]; then
+    nvcc -O2 -o ${filename%.*} $filename -I../../../../cutlass/include --gpu-architecture sm_80 --expt-relaxed-constexpr --use_fast_math
+
+# Profile
+elif [ "$build" == "profile" ]; then
+    nvcc -O2 -lineinfo -o ${filename%.*} $filename -I../../../../cutlass/include --gpu-architecture sm_80 --expt-relaxed-constexpr
+    ncu --set full -f -o ${filename%.*} ${filename%.*}
+    nsys profile -f true -o ${filename%.*} ${filename%.*}
+
+# Debug
+elif [ "$build" == "debug" ]; then
+    nvcc -G -g -O0 -DDEBUG -o ${filename%.*} $filename -I../../../../cutlass/include --gpu-architecture sm_80 --expt-relaxed-constexpr
+else
+    echo "usage: $0 [debug|release|profile] filename"
+    exit 1
+fi
