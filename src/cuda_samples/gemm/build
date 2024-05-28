@@ -1,3 +1,5 @@
+#!/bin/bash
+
 build="$1"
 filename="$2"
 
@@ -14,6 +16,11 @@ elif [ "$build" == "profile" ]; then
 # Debug
 elif [ "$build" == "debug" ]; then
     nvcc -G -g -O0 -DDEBUG -o ${filename%.*} $filename -I../../../../cutlass/include --gpu-architecture sm_80 --expt-relaxed-constexpr
+
+# Validate (Debug)
+elif [ "$build" == "validate" ]; then
+    nvcc -G -g -O0 -DDEBUG -DCPU_MATH_VALIDATION_ENABLED -o ${filename%.*} $filename -I../../../../cutlass/include --gpu-architecture sm_80 --expt-relaxed-constexpr
+
 else
     echo "usage: $0 [debug|release|profile] filename"
     exit 1
