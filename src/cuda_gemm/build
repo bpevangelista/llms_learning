@@ -10,8 +10,10 @@ if [ "$build" == "release" ]; then
 # Profile
 elif [ "$build" == "profile" ]; then
     nvcc -O2 -lineinfo -o ${filename%.*} $filename -I../../../../cutlass/include --gpu-architecture sm_80 --expt-relaxed-constexpr
-    ncu --set full -f -o ${filename%.*} ${filename%.*}
-    nsys profile -f true -o ${filename%.*} ${filename%.*}
+    if [ $? -eq 0 ]; then
+      ncu --set full -f -o ${filename%.*} ${filename%.*}
+      nsys profile -f true -o ${filename%.*} ${filename%.*}
+    fi
 
 # Debug
 elif [ "$build" == "debug" ]; then
