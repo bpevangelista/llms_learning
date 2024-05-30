@@ -25,8 +25,13 @@ __device__ void cp_async16B_cache_global(void *smem_ptr, const void *gmem_ptr, b
         :: "r"(smem_ptr_u32), "l"(gmem_ptr), "n"(kCopySize), "r"(src_size));
 }
 
-__device__ void cp_async_wait_all() {
-    asm volatile("cp.async.wait_all;");
+__device__ __forceinline__ void cp_async_commit_group() {
+    asm volatile("cp.async.commit_group;");
+}
+
+template <int N>
+__device__ __forceinline__ void cp_async_wait_group() {
+    asm volatile("cp.async.wait_all;" :: "n"(N));
 }
 
 
@@ -54,40 +59,60 @@ __global__ void gemm_kernel_m16n8k16(const half* __restrict__ mat_a, const half*
     uint32_t shift_elem = laneid % 4;
 
     constexpr int32_t kBufferCount = 2; // Triple buffering
-    __shared__ uint32_t smem_mat_a[kKernelSizeMK*kKernelSizeMK*kBufferCount/2];
-    __shared__ uint32_t smem_mat_b[kKernelSizeMK*kKernelSizeN*kBufferCount/2];
+    __shared__ uint32_t smem_mat_a[kBufferCount][kKernelSizeMK*kKernelSizeMK/2];    // 2xf16 p/reg
+    __shared__ uint32_t smem_mat_b[kBufferCount][kKernelSizeMK*kKernelSizeN/2];     // 2xf16 p/reg
 
     // MatOut 16x8 tile
     // Calculate 4xf32 p/thread
     float acc[4] = {};
 
+    int32_t read_index = 0;
+    int32_t write_index = 0;
+
+    // MatA 16x16 tile, MatB 16x8 tile
+    // 8xf16 across 4 32b register (2xf16 p/register)
+    #pragma unroll
+    for (int32_t cp = 0; cp < 16; cp++) {
+        uint32_t* mat_a_u32 = (uint32_t*)&mat_a[(row + cp) * kMatSizeK];
+        cp_async16B_cache_global(&smem_mat_a[write_index][cp * 8 + 0], &mat_a_u32[0]); // copy 8x
+        cp_async16B_cache_global(&smem_mat_a[write_index][cp * 8 + 4], &mat_a_u32[4]); // copy 8x
+    }
+
+    // 4xf16 across 2 32b register (2xf16 p/register)
+    #pragma unroll
+    for (int32_t cp = 0; cp < 8; cp++) {
+        uint32_t* mat_b_u32 = (uint32_t*)&mat_b[(col + cp) * kMatSizeK];
+        cp_async16B_cache_global(&smem_mat_b[write_index][cp * 8 + 0], &mat_b_u32[0]);
+        cp_async16B_cache_global(&smem_mat_b[write_index][cp * 8 + 4], &mat_b_u32[4]);
+    }
+    cp_async_commit_group();
+    read_index = write_index;
+    write_index = (write_index + 1) % 2;
+
     for (int32_t k=0; k < kMatSizeK; k += kKernelSizeMK) {
-        // MatA 16x16 tile
-        // 8xf16 across 4 32b register (2xf16 p/register)
         #pragma unroll
-        for (int cp = 0; cp < 16; cp++) {
-            uint32_t* mat_a_u32 = (uint32_t*)&mat_a[(row + cp) * kMatSizeK + k];
-            cp_async16B_cache_global(&smem_mat_a[cp * 8 + 0], &mat_a_u32[0]); // copy 8x
-            cp_async16B_cache_global(&smem_mat_a[cp * 8 + 4], &mat_a_u32[4]); // copy 8x
+        for (int32_t cp = 0; cp < 16; cp++) {
+            uint32_t* mat_a_u32 = (uint32_t*)&mat_a[(row + cp) * kMatSizeK + k + kKernelSizeMK];
+            cp_async16B_cache_global(&smem_mat_a[write_index][cp * 8 + 0], &mat_a_u32[0]); // copy 8x
+            cp_async16B_cache_global(&smem_mat_a[write_index][cp * 8 + 4], &mat_a_u32[4]); // copy 8x
         }
 
-        // MatB 16x8 tile
         // 4xf16 across 2 32b register (2xf16 p/register)
         #pragma unroll
-        for (int cp = 0; cp < 8; cp++) {
-            uint32_t* mat_b_u32 = (uint32_t*)&mat_b[(col + cp) * kMatSizeK + k];
-            cp_async16B_cache_global(&smem_mat_b[cp * 8 + 0], &mat_b_u32[0]);
-            cp_async16B_cache_global(&smem_mat_b[cp * 8 + 4], &mat_b_u32[4]);
+        for (int32_t cp = 0; cp < 8; cp++) {
+            uint32_t* mat_b_u32 = (uint32_t*)&mat_b[(col + cp) * kMatSizeK + k + kKernelSizeMK];
+            cp_async16B_cache_global(&smem_mat_b[write_index][cp * 8 + 0], &mat_b_u32[0]);
+            cp_async16B_cache_global(&smem_mat_b[write_index][cp * 8 + 4], &mat_b_u32[4]);
         }
+        cp_async_commit_group();
+        cp_async_wait_group<0>();
 
-        cp_async_wait_all();
-
-        uint32_t a0 = smem_mat_a[shift_k * 8 + shift_elem];
-        uint32_t a1 = smem_mat_a[shift_k * 8 + shift_elem + 64];
-        uint32_t a2 = smem_mat_a[shift_k * 8 + shift_elem + 4];
-        uint32_t a3 = smem_mat_a[shift_k * 8 + shift_elem + 64 + 4];
-        uint32_t b0 = smem_mat_b[shift_k * 8 + shift_elem];
-        uint32_t b1 = smem_mat_b[shift_k * 8 + shift_elem + 4];
+        uint32_t a0 = smem_mat_a[read_index][shift_k * 8 + shift_elem];
+        uint32_t a1 = smem_mat_a[read_index][shift_k * 8 + shift_elem + 64];
+        uint32_t a2 = smem_mat_a[read_index][shift_k * 8 + shift_elem + 4];
+        uint32_t a3 = smem_mat_a[read_index][shift_k * 8 + shift_elem + 64 + 4];
+        uint32_t b0 = smem_mat_b[read_index][shift_k * 8 + shift_elem];
+        uint32_t b1 = smem_mat_b[read_index][shift_k * 8 + shift_elem + 4];
 
         asm volatile(
           "mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 "
@@ -97,6 +122,9 @@ __global__ void gemm_kernel_m16n8k16(const half* __restrict__ mat_a, const half*
           : "=f"(acc[0]), "=f"(acc[1]), "=f"(acc[2]), "=f"(acc[3])
           :  "r"(a0),  "r"(a1),  "r"(a2),  "r"(a3), "r"(b0),  "r"(b1),
              "f"(acc[0]),  "f"(acc[1]),  "f"(acc[2]),  "f"(acc[3]));
+
+        read_index = write_index;
+        write_index = (write_index + 1) % 2;
 
 #if 0 // Debug
         if (laneid == 0) {
