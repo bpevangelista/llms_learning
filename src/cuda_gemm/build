@@ -2,26 +2,34 @@
 
 build="$1"
 filename="$2"
+base_name="${filename%.*}"
 
 # Release
 if [ "$build" == "release" ]; then
-    nvcc -O2 -o ${filename%.*} $filename -I../../../../cutlass/include --gpu-architecture sm_80 --expt-relaxed-constexpr --use_fast_math
+    nvcc -O2 -o ${base_name} $filename -I../../../../cutlass/include --gpu-architecture sm_80 --expt-relaxed-constexpr --use_fast_math
 
 # Profile
 elif [ "$build" == "profile" ]; then
-    nvcc -O2 -lineinfo -o ${filename%.*} $filename -I../../../../cutlass/include --gpu-architecture sm_80 --expt-relaxed-constexpr
+    nvcc -O2 -lineinfo -o ${base_name} $filename -I../../../../cutlass/include --gpu-architecture sm_80 --expt-relaxed-constexpr --use_fast_math
     if [ $? -eq 0 ]; then
-      ncu --set full -f -o ${filename%.*} ${filename%.*}
-      nsys profile -f true -o ${filename%.*} ${filename%.*}
+      profile_index=1
+      profile_name=$(printf "%s%03d" ${base_name} ${profile_index})
+      while ls ${profile_name}.n* &>/dev/null; do
+        profile_index=$((profile_index + 1))
+        profile_name=$(printf "%s%03d" ${base_name} ${profile_index})
+      done
+
+      ncu --set full -f -o ${profile_name} ${base_name}
+      nsys profile -f true -o ${profile_name} ${base_name}
     fi
 
 # Debug
 elif [ "$build" == "debug" ]; then
-    nvcc -G -g -O0 -DDEBUG -o ${filename%.*} $filename -I../../../../cutlass/include --gpu-architecture sm_80 --expt-relaxed-constexpr
+    nvcc -G -g -O0 -DDEBUG -o ${base_name} $filename -I../../../../cutlass/include --gpu-architecture sm_80 --expt-relaxed-constexpr
 
 # Validate (Debug)
 elif [ "$build" == "validate" ]; then
-    nvcc -G -g -O0 -DDEBUG -DCPU_MATH_VALIDATION_ENABLED -o ${filename%.*} $filename -I../../../../cutlass/include --gpu-architecture sm_80 --expt-relaxed-constexpr
+    nvcc -O2 -DCPU_MATH_VALIDATION_ENABLED -o ${base_name} $filename -I../../../../cutlass/include --gpu-architecture sm_80 --expt-relaxed-constexpr
 
 else
     echo "usage: $0 [debug|release|profile] filename"
