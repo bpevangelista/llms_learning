@@ -48,11 +48,11 @@ void printTensor(const char* labelName, T* tensor, int32_t rows, int32_t columns
 template <typename T>
 void printTensor(T* tensor, int32_t rows, int32_t columns) {
     for (int32_t i=0; i<rows; ++i) {
-        printf("[ ");
+        printf("[");
         for (int32_t j=0; j < columns; ++j) {
-            printf("% 7.3f ", static_cast<float>(tensor[i * columns + j]));
+            printf("% 7.2f", static_cast<float>(tensor[i * columns + j]));
         }
-        printf("]\n");
+        printf(" ]\n");
     }
     printf("\n");
 }
