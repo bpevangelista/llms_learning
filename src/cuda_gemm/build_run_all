@@ -1,8 +1,9 @@
 #!/bin/bash
 
-run_build() {
+build_run() {
     echo -e "\n$2"
-    ./build "$1" "$2"
+    base_name="${2%.*}"
+    ./build "$1" "$2" && ./$base_name
 }
 
 if [[ "$1" != "release" && "$1" != "debug" && "$1" != "profile" && "$1" != "validate" ]]; then
@@ -10,14 +11,16 @@ if [[ "$1" != "release" && "$1" != "debug" && "$1" != "profile" && "$1" != "vali
   exit 1
 fi
 
-run_build $1 s1_gemm_naive.cu && ./s1_gemm_naive
+build_run $1 s1_gemm_naive.cu
 
-run_build $1 s2_gemm_naive_templated.cu && ./s2_gemm_naive_templated
+build_run $1 s2_gemm_naive_templated.cu
 
-run_build $1 s3_gemm_coalesced2d.cu && ./s3_gemm_coalesced2d
+build_run $1 s3_gemm_coalesced2d.cu
 
-run_build $1 s4_gemm_tiled.cu && ./s4_gemm_tiled
+build_run $1 s4_gemm_tiled.cu
 
-run_build $1 s5_gemm_mma.cu && ./s5_gemm_mma
+build_run $1 s5_gemm_mma.cu
 
-run_build $1 s5_gemm_mma_slow.cu && ./s5_gemm_mma_slow
+build_run $1 s5_gemm_mma_fast.cu
+
+build_run $1 s6_gemm_smem_mma.cu
