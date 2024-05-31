@@ -32,6 +32,6 @@ elif [ "$build" == "validate" ]; then
     nvcc -O2 -DCPU_MATH_VALIDATION_ENABLED -o ${base_name} $filename -I../../../../cutlass/include --gpu-architecture sm_80 --expt-relaxed-constexpr
 
 else
-    echo "usage: $0 [debug|release|profile] filename"
+    echo "usage: $0 [debug|release|profile|validate] filename"
     exit 1
 fi

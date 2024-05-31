@@ -5,14 +5,19 @@ run_build() {
     ./build "$1" "$2"
 }
 
-run_build release s1_gemm_naive.cu && ./s1_gemm_naive
+if [[ "$1" != "release" && "$1" != "debug" && "$1" != "profile" && "$1" != "validate" ]]; then
+  echo "usage: $0 [debug|release|profile|validate] filename"
+  exit 1
+fi
 
-run_build release s2_gemm_naive_templated.cu && ./s2_gemm_naive_templated
+run_build $1 s1_gemm_naive.cu && ./s1_gemm_naive
 
-run_build release s3_gemm_coalesced2d.cu && ./s3_gemm_coalesced2d
+run_build $1 s2_gemm_naive_templated.cu && ./s2_gemm_naive_templated
 
-run_build release s4_gemm_tiled.cu && ./s4_gemm_tiled
+run_build $1 s3_gemm_coalesced2d.cu && ./s3_gemm_coalesced2d
 
-run_build release s5_gemm_mma.cu && ./s5_gemm_mma
+run_build $1 s4_gemm_tiled.cu && ./s4_gemm_tiled
 
-run_build release s5_gemm_mma_slow.cu && ./s5_gemm_mma_slow
+run_build $1 s5_gemm_mma.cu && ./s5_gemm_mma
+
+run_build $1 s5_gemm_mma_slow.cu && ./s5_gemm_mma_slow
