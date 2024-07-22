@@ -4,7 +4,7 @@
 #include "helpers.cu"
 
 
-// One thread per output element [matSizeM, matSizeN] = [matSizeM, matSizeK] * [matSizeK, matSizeN]
+// One thread per output element [matSizeM, matSizeN]
 // matA (row-major) and matB (col-major) allows continuous memory access
 __global__ void gemm_kernel1x1(const float* matA, const float* matB, float* matOut,
     const int32_t matSizeM, const int32_t matSizeN, const int32_t matSizeK) {

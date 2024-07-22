@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include "helpers.cu"
 
-// One thread per output element [matSizeM, matSizeN] = [matSizeM, matSizeK] * [matSizeK, matSizeN]
+
 // matA (row-major) and matB (col-major) allows continuous memory access
 template <
     typename T, typename Acc,

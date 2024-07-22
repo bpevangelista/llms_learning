@@ -8,7 +8,6 @@ __device__ float f1(uint32_t val) { return __half2float( ((half*)&val)[0] ); }
 __device__ float f2(uint32_t val) { return __half2float( ((half*)&val)[1] ); }
 
 
-// One thread per output element [kMatSizeM, kMatSizeN] = [kMatSizeM, kMatSizeK] * [kMatSizeK, kMatSizeN]
 // mat_a (row-major) and mat_b (col-major) allows continuous memory access
 template <
     int32_t kMatSizeM, int32_t kMatSizeN, int32_t kMatSizeK                // Matrix A & B sizes
