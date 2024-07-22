@@ -1,7 +1,7 @@
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
-#include "helpers.cu"
+#include "helpers.cuh"
 
 
 // One thread per output element [matSizeM, matSizeN]
@@ -73,7 +73,7 @@ int main() {
     cudaEventDestroy(kernelStop);
     printf("Kernel runtime: %.2fms\n", kernelMs); // 950ms on 3060TI for 2k-4k-gemm, MSE 0
 
-#ifdef CPU_MATH_VALIDATION_ENABLED
+#ifdef GEMM_MATH_VALIDATION_ENABLED
     // Calculate GEMM on CPU
     for (int i=0; i<matSizeM; ++i) {
         for (int j=0; j<matSizeN; ++j) {
@@ -86,7 +86,7 @@ int main() {
     }
 
     // Validate CPU vs GPU computation
-    auto [diffs, mse] = debugCompare<float>(cpuMatOut, matOut, nullptr, matSizeM * matSizeN);
+    auto [diffs, mse] = compare_cpu_gpu_tensor<float>(cpuMatOut, matOut, nullptr, matSizeM * matSizeN);
     printf("Epsilon-diffs: count %d, perc %.3f, MSE %.4f\n", diffs, diffs/(float)(matSizeM * matSizeN), mse);
 #endif
 
