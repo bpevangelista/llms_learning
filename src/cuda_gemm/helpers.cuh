@@ -1,3 +1,6 @@
+#include <cuda_fp16.h>
+#include <stdint.h>
+#include <stdio.h>
 #include <tuple>
 
 #ifndef SAFE_FREE
@@ -58,7 +61,7 @@ void printTensor(T* tensor, int32_t rows, int32_t columns) {
 }
 
 template <typename T>
-std::tuple<uint32_t, double> debugCompare(T* cpuTensorPtr, T* gpuTensorPtr, T** optGpuTensorCpuPtr,
+std::tuple<uint32_t, double> compare_cpu_gpu_tensor(T* cpuTensorPtr, T* gpuTensorPtr, T** optGpuTensorCpuPtr,
     int32_t numElements, float EPSILON = 0.001f, bool printDeltas = false) {
     int32_t sizeInBytes = numElements * sizeof(T);
     T* gpuTensorCpuMapped = reinterpret_cast<T*>(malloc(sizeInBytes));
@@ -86,4 +89,40 @@ std::tuple<uint32_t, double> debugCompare(T* cpuTensorPtr, T* gpuTensorPtr, T** 
         SAFE_FREE(gpuTensorCpuMapped);
     }
     return {diffCount, mse};
+}
+
+template <typename T, typename Acc, int32_t kMatSizeM, int32_t kMatSizeN, int32_t kMatSizeK>
+void compare_cpu_gpu_gemm(T* gpu_mat_out, T *cpu_mat_a, T *cpu_mat_b) {
+    // Calculate on CPU
+    T* cpu_mat_out = reinterpret_cast<T*>(malloc(kMatSizeM * kMatSizeN * sizeof(T)));
+    for (int i=0; i < kMatSizeM; ++i) {
+        for (int j=0; j < kMatSizeN; ++j) {
+            Acc acc = 0.0f;
+            for (int k=0; k < kMatSizeK; ++k) {
+                float temp = static_cast<float>(cpu_mat_a[i * kMatSizeK + k]) *
+                    static_cast<float>(cpu_mat_b[j * kMatSizeK + k]);
+                if (sizeof(Acc) == 2) { // half
+                    acc = __float2half_rn(static_cast<float>(acc) + temp);
+                } else { // float
+                    acc += temp;
+                }
+            }
+            cpu_mat_out[i * kMatSizeN + j] = acc;
+        }
+    }
+
+    // Validate CPU vs GPU computation
+    T* out_gpu_mat_cpu_copy;
+    auto [diffs, mse] = compare_cpu_gpu_tensor(cpu_mat_out, gpu_mat_out, &out_gpu_mat_cpu_copy, kMatSizeM * kMatSizeN);
+    printf("Epsilon-diffs: count %d, perc %.2f, MSE %.5f\n", diffs, diffs/(float)(kMatSizeM * kMatSizeN), mse);
+
+    // Debug small matrices
+    if (mse > 0.001f && kMatSizeM <= 32 && kMatSizeN <= 32) {
+        printTensor("cpu_mat_a\n", cpu_mat_a, kMatSizeM, kMatSizeK);
+        printTensor("cpu_mat_b\n", cpu_mat_b, kMatSizeN, kMatSizeK);
+        printTensor("cpu_mat_out\n", cpu_mat_out, kMatSizeM, kMatSizeN);
+        printTensor("cuda_mat_out\n", out_gpu_mat_cpu_copy, kMatSizeM, kMatSizeN);
+    }
+    SAFE_FREE(cpu_mat_out);
+    SAFE_FREE(out_gpu_mat_cpu_copy);
 }
