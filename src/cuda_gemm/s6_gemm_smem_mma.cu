@@ -1,7 +1,8 @@
 #include <cuda_fp16.h>
 #include <stdint.h>
 #include <stdio.h>
-#include "helpers.cu"
+
+#include "gemm_main.cuh"
 
 __device__ __forceinline__ uint32_t lane_id() { uint32_t res; asm("mov.u32 %0, %laneid;" : "=r"(res) ); return res; }
 __device__ float f1(uint32_t val) { return __half2float( ((half*)&val)[0] ); }
@@ -28,90 +29,100 @@ __device__ __forceinline__ void cp_async_wait_group() {
 // One thread per output element [kMatSizeM, kMatSizeN] = [kMatSizeM, kMatSizeK] * [kMatSizeK, kMatSizeN]
 // mat_a (row-major) and mat_b (col-major) allows continuous memory access
 template <
-    int32_t kMatSizeM, int32_t kMatSizeN, int32_t kMatSizeK                // Matrix A & B sizes
+    int32_t kMatSizeM, int32_t kMatSizeN, int32_t kMatSizeK,                // Matrix A & B sizes
+    int32_t kKernelSizeMK, int32_t kKernelSizeN, int32_t kKernelCount
 >
-__global__ void gemm_kernel_m16n8k16(const half* __restrict__ mat_a, const half* __restrict__ mat_b, half* __restrict__ mat_out) {
+__global__ void gemm_kernel_m16n8k16(const half* __restrict__ mat_a_f16, const half* __restrict__ mat_b_f16, half* __restrict__ mat_out_f16) {
 
-    constexpr int32_t kKernelSizeMK = 16;
-    constexpr int32_t kKernelSizeN = 8;
+    const uint32_t* __restrict__ mat_a_u32 = (const uint32_t*)mat_a_f16;
+    const uint32_t* __restrict__ mat_b_u32 = (const uint32_t*)mat_b_f16;
 
     // 2D thread group block in 2D dispatch grid
-    int32_t row = blockIdx.x * kKernelSizeMK;
-    int32_t col = blockIdx.y * kKernelSizeN;
+    int32_t kernel_index = threadIdx.x / 32;
+    int32_t col = blockIdx.x * kKernelCount * kKernelSizeN + kernel_index * kKernelSizeN;
+    int32_t row = blockIdx.y * kKernelSizeMK;
 
     // Handle output matrix (kMatSizeM x kMatSizeN) not evenly divisible by kernel size
     if (row >= kMatSizeM || col >= kMatSizeN) {
         return; // Early exit
     }
 
-    uint32_t laneid = lane_id();
-    uint32_t shift_k = laneid >> 2;
-    uint32_t shift_elem = laneid % 4;
-
-    constexpr int32_t kBufferCount = 2; // Triple buffering
+    constexpr int32_t kBufferCount = 2; // Multi buffering
     int32_t read_index = 0;
     int32_t write_index = 0;
 
     // Kernel M is (16 * 2B) 32B, 4xM == 128B (cache line)
     constexpr int32_t kMatrixBatch = 4;
-    __shared__ uint32_t smem_mat_a[kBufferCount][kKernelSizeMK * kKernelSizeMK * kMatrixBatch / 2];    // 2xf16 p/reg
-    // Note, fetching more than kernel needs
-    __shared__ uint32_t smem_mat_b[kBufferCount][kKernelSizeMK * kKernelSizeMK * kMatrixBatch / 2];    // 2xf16 p/reg
+    __shared__ uint32_t smem_mat_a_u32[kKernelCount][kBufferCount][kKernelSizeMK * kKernelSizeMK * kMatrixBatch / 2];    // 2xf16 p/reg
+    __shared__ uint32_t smem_mat_b_u32[kKernelCount][kBufferCount][kKernelSizeMK * kKernelSizeN * kMatrixBatch / 2];    // 2xf16 p/reg
 
-    // MatOut 16x8 tile
     // Calculate 4xf32 p/thread
     float acc[4] = {};
 
-    int32_t tid_row = laneid % 16;
-    int32_t tid_ele = laneid / 16 * 4;
+    uint32_t laneid = lane_id();
+    int32_t shift_k = laneid >> 2;      // [0, 7]
+    int32_t shift_elem = laneid % 4;    // [0, 3]
+    int32_t tid_k   = laneid / 8;       // [0, 3]
+    int32_t tid_ele = laneid % 8;       // [0, 7]
 
-    // MatA 16x16 tile, MatB 16x8 tile
-    // 8xf16 across 4 32b register (2xf16 p/register)
-    uint32_t* mat_a_u32 = (uint32_t*)&mat_a[(row + tid_row) * kMatSizeK];
-    cp_async16B_cache_global(&smem_mat_a[write_index][tid_row * 8 * kMatrixBatch +  0 + tid_ele], &mat_a_u32[ 0 + tid_ele]);
-    cp_async16B_cache_global(&smem_mat_a[write_index][tid_row * 8 * kMatrixBatch +  8 + tid_ele], &mat_a_u32[ 8 + tid_ele]);
-    cp_async16B_cache_global(&smem_mat_a[write_index][tid_row * 8 * kMatrixBatch + 16 + tid_ele], &mat_a_u32[16 + tid_ele]);
-    cp_async16B_cache_global(&smem_mat_a[write_index][tid_row * 8 * kMatrixBatch + 24 + tid_ele], &mat_a_u32[24 + tid_ele]);
+    constexpr int32_t kSmemLengthK_U32 = 32;                // 128B
+    constexpr int32_t kGmemLengthK_U32 = kMatSizeK / 2;     // 2xF16 per U32
+    constexpr int32_t kCopyLength_U32 = 4;                  // 16B
 
-    //if (tid_row < 8) { // Avoid over-fetch
-        uint32_t* mat_b_u32 = (uint32_t*)&mat_b[(col + tid_row) * kMatSizeK];
-        cp_async16B_cache_global(&smem_mat_b[write_index][tid_row * 8 * kMatrixBatch + 0  + tid_ele], &mat_b_u32[ 0 + tid_ele]);
-        cp_async16B_cache_global(&smem_mat_b[write_index][tid_row * 8 * kMatrixBatch + 8  + tid_ele], &mat_b_u32[ 8 + tid_ele]);
-        cp_async16B_cache_global(&smem_mat_b[write_index][tid_row * 8 * kMatrixBatch + 16 + tid_ele], &mat_b_u32[16 + tid_ele]);
-        cp_async16B_cache_global(&smem_mat_b[write_index][tid_row * 8 * kMatrixBatch + 24 + tid_ele], &mat_b_u32[24 + tid_ele]);
-    //}
+    // Warp - Copy 16x rows of 128B (64 elements, or 4x m16n8k16)
+    #pragma unroll
+    for (int32_t i=0; i < 4; i++) {
+        int32_t local_row = tid_k + i * 4;
+        cp_async16B_cache_global(&smem_mat_a_u32[kernel_index][write_index][local_row * kSmemLengthK_U32 + tid_ele * kCopyLength_U32],
+            &mat_a_u32[(row + local_row) * kGmemLengthK_U32 + tid_ele * kCopyLength_U32]);
+    }
 
+    // Warp - Copy 8x cols of 128B (64 elements, or 4x m16n8k16)
+    #pragma unroll
+    for (int32_t i = 0; i < 2; i++) {
+        int32_t local_col = tid_k + i * 4;
+        cp_async16B_cache_global(&smem_mat_b_u32[kernel_index][write_index][local_col * kSmemLengthK_U32 + tid_ele * kCopyLength_U32],
+            &mat_b_u32[(col + local_col) * kGmemLengthK_U32 + tid_ele * kCopyLength_U32]);
+    }
     cp_async_commit_group();
 
     for (int32_t count=0, k=0; k < kMatSizeK; count++, k += kKernelSizeMK) {
+
         if (count % kMatrixBatch == 0) {
             read_index = write_index;
             write_index = (write_index + 1) % kBufferCount;
 
-            uint32_t* mat_a_u32 = (uint32_t*)&mat_a[(row + tid_row) * kMatSizeK + k + kKernelSizeMK * kMatrixBatch];
-            cp_async16B_cache_global(&smem_mat_a[write_index][tid_row * 8 * kMatrixBatch +  0 + tid_ele], &mat_a_u32[ 0 + tid_ele]);
-            cp_async16B_cache_global(&smem_mat_a[write_index][tid_row * 8 * kMatrixBatch +  8 + tid_ele], &mat_a_u32[ 8 + tid_ele]);
-            cp_async16B_cache_global(&smem_mat_a[write_index][tid_row * 8 * kMatrixBatch + 16 + tid_ele], &mat_a_u32[16 + tid_ele]);
-            cp_async16B_cache_global(&smem_mat_a[write_index][tid_row * 8 * kMatrixBatch + 24 + tid_ele], &mat_a_u32[24 + tid_ele]);
+            // Warp - Copy 16x rows of 128B (64 elements, or 4x m16n8k16)
+            #pragma unroll
+            for (int32_t i = 0; i < 4; i++) {
+                int32_t local_row = tid_k + i * 4;
+                cp_async16B_cache_global(&smem_mat_a_u32[kernel_index][write_index][local_row * kSmemLengthK_U32 + tid_ele * kCopyLength_U32],
+                    &mat_a_u32[(row + local_row) * kGmemLengthK_U32 + tid_ele * kCopyLength_U32 + (k + kKernelSizeMK * kMatrixBatch) / 2]); // todo skip initial
+            }
 
-            uint32_t* mat_b_u32 = (uint32_t*)&mat_b[(col + tid_row) * kMatSizeK + k + kKernelSizeMK * kMatrixBatch];
-            cp_async16B_cache_global(&smem_mat_b[write_index][tid_row * 8 * kMatrixBatch +  0 + tid_ele], &mat_b_u32[ 0 + tid_ele]);
-            cp_async16B_cache_global(&smem_mat_b[write_index][tid_row * 8 * kMatrixBatch +  8 + tid_ele], &mat_b_u32[ 8 + tid_ele]);
-            cp_async16B_cache_global(&smem_mat_b[write_index][tid_row * 8 * kMatrixBatch + 16 + tid_ele], &mat_b_u32[16 + tid_ele]);
-            cp_async16B_cache_global(&smem_mat_b[write_index][tid_row * 8 * kMatrixBatch + 24 + tid_ele], &mat_b_u32[24 + tid_ele]);
+            // Warp - Copy 8x cols of 128B (64 elements, or 4x m16n8k16)
+            #pragma unroll
+            for (int32_t i = 0; i < 2; i++) {
+                int32_t local_col = tid_k + i * 4;
+                cp_async16B_cache_global(&smem_mat_b_u32[kernel_index][write_index][local_col * kSmemLengthK_U32 + tid_ele * kCopyLength_U32],
+                    &mat_b_u32[(col + local_col) * kGmemLengthK_U32 + tid_ele * kCopyLength_U32 + (k + kKernelSizeMK * kMatrixBatch) / 2]);
+            }
 
             cp_async_commit_group();
             cp_async_wait_group<1>();
         }
+        //__syncthreads();
 
         int32_t mat_shift = (count % kMatrixBatch) * 8; // Row shift is 8x u32 == 16x half
-        uint32_t a0 = smem_mat_a[read_index][mat_shift + shift_k * 32 + shift_elem];
-        uint32_t a1 = smem_mat_a[read_index][mat_shift + shift_k * 32 + shift_elem + 64 * kMatrixBatch]; // 64 = 8 rows * 16 / 2 (4B->2B)
-        uint32_t a2 = smem_mat_a[read_index][mat_shift + shift_k * 32 + shift_elem + 4];
-        uint32_t a3 = smem_mat_a[read_index][mat_shift + shift_k * 32 + shift_elem + 64 * kMatrixBatch + 4];
+        uint32_t* a_u32 = &smem_mat_a_u32[kernel_index][read_index][mat_shift];
+        uint32_t* b_u32 = &smem_mat_b_u32[kernel_index][read_index][mat_shift];
 
-        uint32_t b0 = smem_mat_b[read_index][mat_shift + shift_k * 32 + shift_elem];
-        uint32_t b1 = smem_mat_b[read_index][mat_shift + shift_k * 32 + shift_elem + 4];
+        uint32_t a0 = a_u32[(shift_k + 0) * kSmemLengthK_U32 + shift_elem + 0];
+        uint32_t a2 = a_u32[(shift_k + 0) * kSmemLengthK_U32 + shift_elem + 4];
+        uint32_t a1 = a_u32[(shift_k + 8) * kSmemLengthK_U32 + shift_elem + 0];
+        uint32_t a3 = a_u32[(shift_k + 8) * kSmemLengthK_U32 + shift_elem + 4];
+        uint32_t b0 = b_u32[shift_k * kSmemLengthK_U32 + shift_elem];
+        uint32_t b1 = b_u32[shift_k * kSmemLengthK_U32 + shift_elem + 4];
 
         asm volatile(
           "mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 "
@@ -122,8 +133,6 @@ __global__ void gemm_kernel_m16n8k16(const half* __restrict__ mat_a, const half*
           :  "r"(a0),  "r"(a1),  "r"(a2),  "r"(a3), "r"(b0),  "r"(b1),
              "f"(acc[0]),  "f"(acc[1]),  "f"(acc[2]),  "f"(acc[3]));
 
-        //__syncthreads();
-
 #if 0 // Debug
         if (laneid == 0) {
             printf("\na %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f", f1(a0), f2(a0), f1(a1), f2(a1), f1(a2), f2(a2), f1(a3), f2(a3));
@@ -133,8 +142,8 @@ __global__ void gemm_kernel_m16n8k16(const half* __restrict__ mat_a, const half*
 #endif
     }
 
-    half* mat_out_top = &mat_out[(row + shift_k + 0) * kMatSizeN + col];
-    half* mat_out_bot = &mat_out[(row + shift_k + 8) * kMatSizeN + col];
+    half* mat_out_top = &mat_out_f16[(row + shift_k + 0) * kMatSizeN + col];
+    half* mat_out_bot = &mat_out_f16[(row + shift_k + 8) * kMatSizeN + col];
     mat_out_top[shift_elem * 2 + 0] = __float2half_rn(acc[0]);
     mat_out_top[shift_elem * 2 + 1] = __float2half_rn(acc[1]);
     mat_out_bot[shift_elem * 2 + 0] = __float2half_rn(acc[2]);
@@ -142,102 +151,35 @@ __global__ void gemm_kernel_m16n8k16(const half* __restrict__ mat_a, const half*
 }
 
 
-template <typename T, typename Acc>
-int gemm_main(float EPSILON = 0.001f) {
-    // MxK and NxK matrices
+template <typename T, typename Acc, int32_t kMatSizeM, int32_t kMatSizeN, int32_t kMatSizeK>
+void kernel_main(cudaStream_t stream, cudaEvent_t kernel_start, cudaEvent_t kernel_stop,
+    T* mat_a, T* mat_b, T* mat_out) {
+    // Must be warp-size (32) multiple due to mma instruction
+    constexpr int32_t kKernelDispatchCount = 1;
+    constexpr int32_t kKernelSizeMK = 16;
+    constexpr int32_t kKernelSizeN = 8;
+
+    dim3 thread_group_size = dim3(kKernelDispatchCount * 32, 1, 1);
+    dim3 thread_groups = dim3(
+        CEIL_DIV(kMatSizeN, kKernelDispatchCount * kKernelSizeN),
+        CEIL_DIV(kMatSizeM, kKernelSizeMK)
+    );
+
+    cudaEventRecord(kernel_start, stream);
+    int32_t dynamic_smem_size = 0;
+    gemm_kernel_m16n8k16
+        <kMatSizeM, kMatSizeN, kMatSizeK,
+        kKernelSizeMK, kKernelSizeN, kKernelDispatchCount>
+        <<<thread_groups, thread_group_size, dynamic_smem_size, stream>>>
+        (mat_a, mat_b, mat_out);
+    cudaEventRecord(kernel_stop, stream);
+}
+
+int main() {
     constexpr int32_t kMatSizeM = 2048; // 2k context
     constexpr int32_t kMatSizeK = 4096; // 4k token dimension
     constexpr int32_t kMatSizeN = 2048; // 2k context
 
-    // Per-Kernel Computation Size
-    constexpr int32_t kKernelSizeMK = 16;
-    constexpr int32_t kKernelSizeN = 8;
-
-    // Keep CPU copy of data for validation later
-    T *cpu_mat_a, *cpu_mat_b, *cpu_mat_out;
-
-    // Alloc CUDA device memory with random data for mat_a, mat_b and zeros for mat_out
-    T* mat_a = deviceTensorRand<T>(1, kMatSizeM, kMatSizeK, 2.0f, &cpu_mat_a);     // [-2, 2] rand values
-    T* mat_b = deviceTensorRand<T>(1, kMatSizeK, kMatSizeN, 2.0f, &cpu_mat_b);     // [-2, 2] rand values
-    // Output is matRows x matRows
-    T* mat_out = deviceTensorRand<T>(1, kMatSizeM, kMatSizeN, 0.0f, &cpu_mat_out); // [0, 0] Zero it
-    if (mat_a == nullptr || mat_b == nullptr || mat_out == nullptr) {
-        return -1; // error
-    }
-
-    // Must be warp-size (32) multiple due to mma instruction
-    dim3 thread_group_size = dim3(32, 1, 1);
-    dim3 thread_groups = dim3(
-        CEIL_DIV(kMatSizeM, kKernelSizeMK),
-        CEIL_DIV(kMatSizeN, kKernelSizeN));
-    int32_t dynamic_smem_size = 0;
-
-    // Calculate on GPU
-    cudaStream_t stream;
-    cudaEvent_t kernel_start, kernel_stop;
-    cudaStreamCreate(&stream);
-    cudaEventCreate(&kernel_start);
-    cudaEventCreate(&kernel_stop);
-
-    cudaEventRecord(kernel_start, stream);
-    gemm_kernel_m16n8k16
-        <kMatSizeM, kMatSizeN, kMatSizeK>
-        <<<thread_groups, thread_group_size, dynamic_smem_size, stream>>>
-        (mat_a, mat_b, mat_out);
-    cudaEventRecord(kernel_stop, stream);
-
-    // Wait for GPU (just for correctness as CPU is much slower)
-    cudaError_t status = cudaStreamSynchronize(stream);
-    cudaStreamDestroy(stream);
-
-    // Calculate runtime (ideally avg over many runs)
-    float kernel_elapsed_ms = 0.0f;
-    cudaEventElapsedTime(&kernel_elapsed_ms, kernel_start, kernel_stop);
-    cudaEventDestroy(kernel_start);
-    cudaEventDestroy(kernel_stop);
-    printf("Kernel runtime: %.2fms\n", kernel_elapsed_ms);
-
-#ifdef CPU_MATH_VALIDATION_ENABLED
-    // Calculate on CPU
-    for (int i=0; i < kMatSizeM; ++i) {
-        for (int j=0; j < kMatSizeN; ++j) {
-            Acc acc = 0.0f;
-            for (int k=0; k < kMatSizeK; ++k) {
-                float temp = static_cast<float>(cpu_mat_a[i * kMatSizeK + k]) * static_cast<float>(cpu_mat_b[j * kMatSizeK + k]);
-                if (sizeof(Acc) == 2) { // half
-                    acc = __float2half_rn(static_cast<float>(acc) + temp);
-                } else { // float
-                    acc += temp;
-                }
-            }
-            cpu_mat_out[i * kMatSizeN + j] = acc;
-        }
-    }
-
-    // Validate CPU vs GPU computation
-    T* mat_out_cpu_copied;
-    auto [diffs, mse] = debugCompare(cpu_mat_out, mat_out, &mat_out_cpu_copied, kMatSizeM * kMatSizeN, EPSILON);
-    printf("Epsilon-diffs: count %d, perc %.2f, MSE %.4f\n", diffs, diffs/(float)(kMatSizeM * kMatSizeN), mse);
-
-    // Debug small matrices
-    if (kMatSizeM <= 32 && kMatSizeN <= 32) {
-        printTensor("cpu_mat_a\n", cpu_mat_a, kMatSizeM, kMatSizeK);
-        printTensor("cpu_mat_b\n", cpu_mat_b, kMatSizeN, kMatSizeK);
-        printTensor("cpu_mat_out\n", cpu_mat_out, kMatSizeM, kMatSizeN);
-        printTensor("cuda_mat_out\n", mat_out_cpu_copied, kMatSizeM, kMatSizeN);
-    }
-    SAFE_FREE(mat_out_cpu_copied);
-#endif
-
-    SAFE_FREE(cpu_mat_a);
-    SAFE_FREE(cpu_mat_b);
-    SAFE_FREE(cpu_mat_out);
-    SAFE_CUDA_FREE(mat_a);
-    SAFE_CUDA_FREE(mat_b);
-    SAFE_CUDA_FREE(mat_out);
-    return 0;
-}
-
-int main() {
-    return gemm_main<half, float>(0.1f);       // 6.2ms on 3060TI for 2k-4k-gemm, MSE 0.0007 or 0.02 (k=32)
+    // 6.2ms on 3060TI for 2k-4k-gemm, MSE 0.0007 or 0.02 (k=32)
+    return gemm_main<half, float, kMatSizeM, kMatSizeN, kMatSizeK>();
 }

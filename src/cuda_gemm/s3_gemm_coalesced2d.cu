@@ -1,7 +1,6 @@
 #include <cuda_fp16.h>
 #include <stdint.h>
 #include <stdio.h>
-
 #include "gemm_main.cuh"
 
 
