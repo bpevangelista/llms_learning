@@ -19,8 +19,8 @@ elif [ "$build" == "profile" ]; then
         profile_name=$(printf "%s%03d" ${base_name} ${profile_index})
       done
 
-      ncu --set full -f -o ${profile_name} ${base_name}
-      nsys profile -f true -o ${profile_name} ${base_name}
+      ncu --set full -f -o ./profile/${profile_name} ${base_name}
+      nsys profile -f true -o ./profile/${profile_name} ${base_name}
     fi
 
 # Debug
