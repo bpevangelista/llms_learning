@@ -17,7 +17,7 @@ inline int32_t CEIL_DIV(const int32_t num, const int32_t div) {
 
 
 template <typename T>
-T* deviceTensorRand(int batches, int rows, int columns, float randScale = 1.0f, T** optOutCpuPtr = nullptr) {
+T* device_tensor(int batches, int rows, int columns, float init_rand_scale = 0.0f, T** optOutCpuPtr = nullptr) {
     int32_t resultElements = batches * rows * columns;
     int32_t resultSizeInBytes = resultElements * sizeof(T);
 
@@ -26,8 +26,8 @@ T* deviceTensorRand(int batches, int rows, int columns, float randScale = 1.0f, 
     if (host != nullptr) {
         if (cudaMalloc(&device, resultSizeInBytes) == cudaSuccess) {
             for (int32_t i=0; i<resultElements; ++i) {
-                float floatValue = (2.0 * std::rand() / (float)RAND_MAX) - 1.0;
-                T value = static_cast<T>(floatValue * randScale);
+                float float_value = (2.0 * std::rand() / (float)RAND_MAX) - 1.0;
+                T value = static_cast<T>(float_value * init_rand_scale);
                 host[i] = value;
             }
             cudaMemcpy(device, host, resultSizeInBytes, cudaMemcpyHostToDevice);
@@ -43,13 +43,7 @@ T* deviceTensorRand(int batches, int rows, int columns, float randScale = 1.0f, 
 }
 
 template <typename T>
-void printTensor(const char* labelName, T* tensor, int32_t rows, int32_t columns) {
-    printf("%s", labelName);
-    printTensor(tensor, rows, columns);
-}
-
-template <typename T>
-void printTensor(T* tensor, int32_t rows, int32_t columns) {
+void print_tensor(T* tensor, int32_t rows, int32_t columns) {
     for (int32_t i=0; i<rows; ++i) {
         printf("[");
         for (int32_t j=0; j < columns; ++j) {
@@ -61,8 +55,14 @@ void printTensor(T* tensor, int32_t rows, int32_t columns) {
 }
 
 template <typename T>
+void print_tensor(const char* labelName, T* tensor, int32_t rows, int32_t columns) {
+    printf("%s", labelName);
+    print_tensor(tensor, rows, columns);
+}
+
+template <typename T>
 std::tuple<uint32_t, double> compare_cpu_gpu_tensor(T* cpuTensorPtr, T* gpuTensorPtr, T** optGpuTensorCpuPtr,
-    int32_t numElements, float EPSILON = 0.001f, bool printDeltas = false) {
+    int32_t numElements, float EPSILON = 0.0001f, bool printDeltas = false) {
     int32_t sizeInBytes = numElements * sizeof(T);
     T* gpuTensorCpuMapped = reinterpret_cast<T*>(malloc(sizeInBytes));
     cudaMemcpy(gpuTensorCpuMapped, gpuTensorPtr, sizeInBytes, cudaMemcpyDeviceToHost);
@@ -72,6 +72,7 @@ std::tuple<uint32_t, double> compare_cpu_gpu_tensor(T* cpuTensorPtr, T* gpuTenso
     for (int i=0; i<numElements; i++) {
         float cpuVal = static_cast<float>(cpuTensorPtr[i]);
         float gpuVal = static_cast<float>(gpuTensorCpuMapped[i]);
+
         mse += pow(cpuVal - gpuVal, 2);
         if (fabs(cpuVal - gpuVal) > EPSILON) {
             if (printDeltas) {
@@ -112,16 +113,18 @@ void compare_cpu_gpu_gemm(T* gpu_mat_out, T *cpu_mat_a, T *cpu_mat_b) {
     }
 
     // Validate CPU vs GPU computation
+    float EPSILON = (sizeof(T) == 2)? 0.1f : 0.0001f; // half compared to cpu-float calculation
     T* out_gpu_mat_cpu_copy;
-    auto [diffs, mse] = compare_cpu_gpu_tensor(cpu_mat_out, gpu_mat_out, &out_gpu_mat_cpu_copy, kMatSizeM * kMatSizeN);
+    auto [diffs, mse] = compare_cpu_gpu_tensor(cpu_mat_out, gpu_mat_out, &out_gpu_mat_cpu_copy,
+        kMatSizeM * kMatSizeN, EPSILON);
     printf("Epsilon-diffs: count %d, perc %.2f, MSE %.5f\n", diffs, diffs/(float)(kMatSizeM * kMatSizeN), mse);
 
     // Debug small matrices
     if (mse > 0.001f && kMatSizeM <= 32 && kMatSizeN <= 32) {
-        printTensor("cpu_mat_a\n", cpu_mat_a, kMatSizeM, kMatSizeK);
-        printTensor("cpu_mat_b\n", cpu_mat_b, kMatSizeN, kMatSizeK);
-        printTensor("cpu_mat_out\n", cpu_mat_out, kMatSizeM, kMatSizeN);
-        printTensor("cuda_mat_out\n", out_gpu_mat_cpu_copy, kMatSizeM, kMatSizeN);
+        print_tensor("cpu_mat_a\n", cpu_mat_a, kMatSizeM, kMatSizeK);
+        print_tensor("cpu_mat_b\n", cpu_mat_b, kMatSizeN, kMatSizeK);
+        print_tensor("cpu_mat_out\n", cpu_mat_out, kMatSizeM, kMatSizeN);
+        print_tensor("cuda_mat_out\n", out_gpu_mat_cpu_copy, kMatSizeM, kMatSizeN);
     }
     SAFE_FREE(cpu_mat_out);
     SAFE_FREE(out_gpu_mat_cpu_copy);

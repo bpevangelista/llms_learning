@@ -9,10 +9,10 @@ int gemm_main(float EPSILON = 0.001f) {
     T *cpu_mat_a, *cpu_mat_b;
 
     // Alloc CUDA device memory with random data for mat_a, mat_b and zeros for mat_out
-    T* mat_a = deviceTensorRand<T>(1, kMatSizeM, kMatSizeK, 2.0f, &cpu_mat_a);      // [-2, 2] rand values
-    T* mat_b = deviceTensorRand<T>(1, kMatSizeK, kMatSizeN, 2.0f, &cpu_mat_b);      // [-2, 2] rand values
+    T* mat_a = device_tensor<T>(1, kMatSizeM, kMatSizeK, 2.0f, &cpu_mat_a);      // [-2, 2] rand values
+    T* mat_b = device_tensor<T>(1, kMatSizeK, kMatSizeN, 2.0f, &cpu_mat_b);      // [-2, 2] rand values
     // Output is matRows x matRows
-    T* mat_out = deviceTensorRand<T>(1, kMatSizeM, kMatSizeN, 0.0f);                // [0, 0] Zero it
+    T* mat_out = device_tensor<T>(1, kMatSizeM, kMatSizeN);
     if (mat_a == nullptr || mat_b == nullptr || mat_out == nullptr) {
         return -1; // error
     }
