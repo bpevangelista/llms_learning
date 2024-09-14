@@ -131,7 +131,7 @@ def feed_forward_naive(input_embd: torch.Tensor):
 ```
 
 
-#### Everything Together (Naive)
+#### Transformer Decoder Block (Everything Together Naive)
 
 ```python
 prompt = 'Which fruits do you like?'
@@ -140,18 +140,20 @@ positional_encoding = build_absolute_positional_encoding_naive()
 
 while not has_finished:
     hidden_states = vocab_embedding(input_ids)
-
+    # [seq_len, hidden_dim]
+    seq_length = hidden_states.size(0)
+    # On naive, applies positional_encoding to Q, K, V
+    hidden_states = hidden_states + positional_encoding[:seq_length]
+    
     for layer in decoder:
+        # On naive, num_heads is the same across Q, K, V
         residual = hidden_states
-
-        seq_length = hidden_states.size(0)
-        hidden_states = hidden_states + positional_encoding[:seq_length]
-
         hidden_states = multi_head_attention_naive(hidden_states, num_heads=32)
-        hidden_states = residual + post_attention_norm(hidden_states)
-
+        hidden_states = post_attention_norm(residual + hidden_states)
+        
+        residual = hidden_states
         hidden_states = feed_forward_naive(hidden_states)
-        hidden_states = residual + post_feed_forward_norm(hidden_states)
+        hidden_states = post_feed_forward_norm(residual + hidden_states)
 
     logits = lm_head(hidden_states)
 ```
