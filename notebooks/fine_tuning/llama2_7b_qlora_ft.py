@@ -11,12 +11,9 @@
 # MAGIC dbutils.library.restartPython()
 
 # COMMAND ----------
-
-import datasets, gc, mlflow, os, sys, time, torch
+import datasets, gc, mlflow, os, torch
 from datasets import Dataset, load_dataset
-from datetime import datetime
-from pyspark.ml.deepspeed.deepspeed_distributor import DeepspeedTorchDistributor
-from transformers import AutoConfig, DataCollatorForLanguageModeling, LlamaForCausalLM, LlamaTokenizer, Trainer, TrainingArguments
+from transformers import AutoConfig, DataCollatorForLanguageModeling, LlamaForCausalLM, LlamaTokenizer, TrainingArguments
 from trl import SFTTrainer
 from peft import get_peft_model, LoraConfig, PeftModel, TaskType
 
@@ -69,10 +66,12 @@ def load_model(deepspeed_config=None):
   )
 
   lora_config = LoraConfig(
-    r=8,
-    lora_alpha=16,
-    lora_dropout=0.05,
-    target_modules = ['q_proj', 'v_pro'],
+    r=16,
+    lora_alpha=32,
+    lora_dropout=0.1,
+    target_modules = ["o_proj", "up_proj", "gate_proj", "lm_head"], # Light Attention, MLP, Head
+    #target_modules = ['o_proj', 'up_proj'], # Light Attention & MLP
+    #target_modules = ['q_proj', 'v_proj'], # QK Attention only
     task_type=TaskType.CAUSAL_LM,
   )
   
