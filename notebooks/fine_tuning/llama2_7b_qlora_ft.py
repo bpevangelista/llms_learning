@@ -70,8 +70,8 @@ def load_model(deepspeed_config=None):
     lora_alpha=32,
     lora_dropout=0.1,
     target_modules = ["o_proj", "up_proj", "gate_proj", "lm_head"], # Light Attention, MLP, Head
-    #target_modules = ['o_proj', 'up_proj'], # Light Attention & MLP
-    #target_modules = ['q_proj', 'v_proj'], # QK Attention only
+    #target_modules = ['o_proj', 'up_proj'],  # Light Attention & MLP
+    #target_modules = ['q_proj', 'v_proj'],   # QK Attention only
     task_type=TaskType.CAUSAL_LM,
   )
   
