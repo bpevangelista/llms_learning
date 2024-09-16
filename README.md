@@ -280,7 +280,38 @@ Test: 100 iterations of 32 attention layers (xavier_normal_ initialized)
 - ~3.5x - sdpa speed-up
 
 
-## LLMs References and Innovations
+## Multi-Modal LLMs References
+
+### Pixtral (Sep 2024, Mistral)
+[Python Ref](https://github.com/patrickvonplaten/vllm/blob/05da6f64a5cd8d36e07b825aabec9351f7bbb714/vllm/model_executor/models/pixtral.py)
+
+- Image (up to 1024x1024)
+  - Split into 16x16 \<img\> patches, \<img_break\> for row-break
+
+
+  - VisionTransformer (Conv2D + Transformer)
+    - Conv2D(3, 1024, 16, 16) ~768k. [Image] &rarr; [1, patches, 1024]
+    - **Transformer** 16 layers, 1k embedding, 16 QKV heads, 4k MLP intermediate with SiLU
+      - ~256MB. 16x (12M MLP, 4MB Attn, 2k RMSNorm)
+      - 2D RoPE encoding
+      - No LM_Head
+
+
+  - VisionLanguageAdapter (MLP)
+    - up_proj [1k &rarr; 5k] bias=True, then GELU
+    - out_proj [5k &rarr; 5k] bias=True
+
+
+- PixtralForCausalLM 
+  - Uses multi-modal embeddings (\<img> replaced with VisionAdapter embeddings)
+    - 5k Embedding Dimension
+  - Vocabulary Size 128k
+  - Grouped Query Attention (32xQ, 8xKV)
+  - MLP Intermediate Size 14k
+  - 40 layers
+
+
+## LLMs References
 
 ### Phy 3 (May 2024, Microsoft)
 
