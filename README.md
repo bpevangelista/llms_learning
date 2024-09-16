@@ -32,7 +32,7 @@ However, both LSTM and GRU remain limited by sequence length, requiring large ne
 Prior to the Transformers architecture, attention was another technique explored to improve modeling of dependencies in RNNs. [[Google's Neural Machine Translation](https://arxiv.org/abs/1609.08144), [Ref](https://arxiv.org/abs/1601.06733)]
 </br></br>
 
-### Transformer Model (2017) – Multi-Head Self-Attention & FFN/MLP
+### Naive Transformer Model (2017) – Multi-Head Self-Attention & MLP/FFN
 
 [Attention Is All You Need Paper](https://arxiv.org/pdf/1706.03762.pdf)
 
@@ -170,6 +170,40 @@ while not has_finished:
     if len(input_ids) >= self.max_seq_length or next_token_id.item() == self.vocab_eos_token:
         has_finished = True
 ```
+
+
+### H2-2024 Modern Transformer Improvements
+
+New approaches that I have not yet seen applied in popular open models:
+- [Mixture-of-Depths](https://arxiv.org/abs/2404.02258)
+- [Multi-Token Prediction](https://arxiv.org/pdf/2404.19737)
+
+Improvements observed in models like LLaMA, Mixtral, Gemma, Grok, and Phy:
+- Rotary Positional Encoding QK-only (1D Text, 2D Images)
+  - Improves generalization to sequences longer than those seen during training
+- RMS Normalization
+  - Normalization without centering, potentially enhancing performance in deeper models 
+
+
+- Multi-Head Attention Improvements
+  - O(n^2): FlashAttention 2 & 3, Xformers, SPDA
+  - O(n): Mamba, Reformers and Linformer
+- Grouped Query Attention (e.g. 32x Q, 8x K/V heads)
+  - Significantly reduces memory and increases performance
+- Sliding context window
+  - Enables longer context while capping attention cost
+- KV Cache with sliding window
+  - Computes and caches attention for each new token once
+  - Significantly boosts performance at the cost of higher memory usage 
+
+
+- Multi Layer Perceptron (MLP) Improvements
+  - SwiGLU and GELU activations 
+    - Outperforms traditional ReLU
+  - Sparse Mixture of Experts (e.g. 8x MLPs, 2x selected per-token)
+    - Enhances task-specific performance while reducing computational cost by
+    activating only the two most relevant experts per-token
+
 
 ### Multi-Head Self-Attention (2024) SOTA Implementations
 
