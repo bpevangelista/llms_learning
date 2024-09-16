@@ -205,6 +205,7 @@ Improvements observed in models like LLaMA, Mixtral, Gemma, Grok, and Phy:
     activating only the two most relevant experts per-token
 
 
+
 ### Multi-Head Self-Attention (2024) SOTA Implementations
 
 [Efficient Attention Reference List](https://gwern.net/note/attention#state)
@@ -278,33 +279,18 @@ Test: 100 iterations of 32 attention layers (xavier_normal_ initialized)
 - ~2.5x - xformers speed-up
 - ~3.5x - sdpa speed-up
 
+
 ## LLMs References and Innovations
 
-### GPT Model (2018, OpenAI) 
-- ~120M parameters
-- Encoder Only
+### Mamba (2023, Stanford)
+
+https://github.com/havenhq/mamba-chat  
+https://arxiv.org/abs/2312.00752
 
 
-### Transformer-XL (2019, Google)
-- KV-Cache
-
-
-### GPT-2 & 3 (2019~2020, OpenAI) 
-- ~1.5B and ~175B parameters respectively
-
-
-### Switch Transformer (2021, Google)
-- Mixture of Experts on FFN
-
-
-### S4 (2021, Stanford)
-- https://srush.github.io/annotated-s4/
-
-### Llama-1 & 2 (2023, Meta)
-- Moved Back RMS Normalization
-- Rotary Positional Encoder (Q, K only)
-- Group Query Attention on 34B/70B
-- SwiGLU instead of RELU
+### Phi1 & 2 (2023, Microsoft)
+- 2.5B parameters
+- TODO
 
 
 ### Mistral-1 (2023, Mistral)
@@ -320,16 +306,33 @@ Test: 100 iterations of 32 attention layers (xavier_normal_ initialized)
   - Efficient Queries Batching/Bundling
 
 
-### Phi1 & 2 (2023, Microsoft)
-- 2.5B parameters
-- TODO
+### Llama-1 & 2 (2023, Meta)
+- Moved Back RMS Normalization
+- Rotary Positional Encoder (Q, K only)
+- Group Query Attention on 34B/70B
+- SwiGLU instead of RELU
 
 
-### Mamba (2023, Stanford)
+### S4 (2021, Stanford)
+- https://srush.github.io/annotated-s4/
 
-https://github.com/havenhq/mamba-chat
 
-https://arxiv.org/abs/2312.00752
+### Switch Transformer (2021, Google)
+- Mixture of Experts on FFN
+
+
+### GPT-2 & 3 (2019~2020, OpenAI) 
+- ~1.5B and ~175B parameters respectively
+
+
+### Transformer-XL (2019, Google)
+- KV-Cache
+
+
+### GPT Model (2018, OpenAI) 
+- ~120M parameters
+- Encoder Only
+
 
 
 
