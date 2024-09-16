@@ -184,7 +184,6 @@ Improvements observed in models like LLaMA, Mixtral, Gemma, Grok, and Phy:
 - RMS Normalization
   - Normalization without centering, potentially enhancing performance in deeper models 
 
-
 - Multi-Head Attention Improvements
   - O(n^2): FlashAttention 2 & 3, Xformers, SPDA
   - O(n): Mamba, Reformers and Linformer
@@ -196,14 +195,12 @@ Improvements observed in models like LLaMA, Mixtral, Gemma, Grok, and Phy:
   - Computes and caches attention for each new token once
   - Significantly boosts performance at the cost of higher memory usage 
 
-
 - Multi Layer Perceptron (MLP) Improvements
   - SwiGLU and GELU activations 
     - Outperforms traditional ReLU
   - Sparse Mixture of Experts (e.g. 8x MLPs, 2x selected per-token)
     - Enhances task-specific performance while reducing computational cost by
     activating only the two most relevant experts per-token
-
 
 
 ### Multi-Head Self-Attention (2024) SOTA Implementations
@@ -282,38 +279,29 @@ Test: 100 iterations of 32 attention layers (xavier_normal_ initialized)
 
 ## Multi-Modal LLMs References
 
-### Pixtral (Sep 2024, Mistral)
-[Python Ref](https://github.com/patrickvonplaten/vllm/blob/05da6f64a5cd8d36e07b825aabec9351f7bbb714/vllm/model_executor/models/pixtral.py)
+### [Pixtral (Sep 2024, Mistral)](https://github.com/patrickvonplaten/vllm/blob/05da6f64a5cd8d36e07b825aabec9351f7bbb714/vllm/model_executor/models/pixtral.py)
 
-- Image (up to 1024x1024)
-  - Split into 16x16 \<img\> patches, \<img_break\> for row-break
+- Image split into 16x16 \<img\> patches, \<img_break\> for row-break
+- **VisionTransformer** (Conv2D + Transformer)
+  - Conv2D(3, 1024, 16, 16). Image &rarr; [1, patches, 1024]
+  - **Transformer** 16 layers, 1k embd, 16 QKV heads, MLP 4k intermediate with SiLU
+    - ~256M. 16x (12M MLP, 4M Attn, 2k RMSNorm)
+    - 2D RoPE, No LM_Head
+- **VisionLanguageAdapter** (MLP)
+  - &nbsp;up_proj [1k &rarr; 5k] bias=True, then GELU
+  - out_proj [5k &rarr; 5k] bias=True
 
-
-  - VisionTransformer (Conv2D + Transformer)
-    - Conv2D(3, 1024, 16, 16) ~768k. [Image] &rarr; [1, patches, 1024]
-    - **Transformer** 16 layers, 1k embedding, 16 QKV heads, 4k MLP intermediate with SiLU
-      - ~256M. 16x (12M MLP, 4M Attn, 2k RMSNorm)
-      - 2D RoPE encoding
-      - No LM_Head
-
-
-  - VisionLanguageAdapter (MLP)
-    - up_proj [1k &rarr; 5k] bias=True, then GELU
-    - out_proj [5k &rarr; 5k] bias=True
-
-
-- PixtralForCausalLM 
-  - Uses multi-modal embeddings (\<img> replaced with VisionAdapter embeddings)
-    - 5k Embedding Dimension
-  - Vocabulary Size 128k
+- **PixtralForCausalLM**
+  - Multi-modal embd. \<img> replaced with VisionAdapter embeddings
+  - 128k Vocabulary, 5k Embedding dimension
   - Grouped Query Attention (32xQ, 8xKV)
-  - MLP Intermediate Size 14k
+  - MLP 14k Intermediate size
   - 40 layers
 
 
 ## LLMs References
 
-### Phy 3 (May 2024, Microsoft)
+### Phi 3 (May 2024, Microsoft)
 
 ### Llama 3 (Apr 2024, Meta)
 
@@ -326,12 +314,11 @@ Test: 100 iterations of 32 attention layers (xavier_normal_ initialized)
   - 32 layers in both
 
 ### Mamba (2023, Stanford)
-
 https://github.com/havenhq/mamba-chat  
 https://arxiv.org/abs/2312.00752
 
 
-### Phi1 & 2 (2023, Microsoft)
+### Phi 1 & 2 (2023, Microsoft)
 - 2.5B parameters
 - TODO
 
@@ -375,8 +362,6 @@ https://arxiv.org/abs/2312.00752
 ### GPT Model (2018, OpenAI) 
 - ~120M parameters
 - Encoder Only
-
-
 
 
 TODO Good
