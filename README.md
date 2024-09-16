@@ -292,7 +292,7 @@ Test: 100 iterations of 32 attention layers (xavier_normal_ initialized)
   - VisionTransformer (Conv2D + Transformer)
     - Conv2D(3, 1024, 16, 16) ~768k. [Image] &rarr; [1, patches, 1024]
     - **Transformer** 16 layers, 1k embedding, 16 QKV heads, 4k MLP intermediate with SiLU
-      - ~256MB. 16x (12M MLP, 4MB Attn, 2k RMSNorm)
+      - ~256M. 16x (12M MLP, 4M Attn, 2k RMSNorm)
       - 2D RoPE encoding
       - No LM_Head
 
