@@ -2,8 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import xformers.ops
-
-import utils
+import model_utils as utils
 
 
 def build_rotary_positional_embedding(embedding_dim: int, max_seq_length: int) -> torch.Tensor:

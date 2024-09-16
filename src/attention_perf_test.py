@@ -1,23 +1,17 @@
 import gc, time, torch
 
-import utils
-from model_attention_naive import AttentionNaive
-from model_attention_modern import AttentionXformers, AttentionSdpa
-from model_blocks import LayerNorm
+from model_transformer_naive import AttentionNaive
+from attention_modern import AttentionXformers, AttentionSdpa
+import model_utils as utils
+
+embedding_dim = 4096  # OPT 512, Llama2 4096 embedding dimension (dmodel)
+num_qkv_heads = 32
+num_hidden_layers = 32
+num_steps = 128
+norm_layer = torch.nn.LayerNorm(embedding_dim)
 
 torch.set_default_dtype(torch.float16)
 torch.set_default_device('cuda:0')
-
-# Transformer Parameters
-vocab_size = 32 * 1024  # 32K words/tokens embeddings in vocabulary
-max_seq_length = 2048  # 2048 maximum input tokens
-embedding_dim = 4096  # OPT 512, Llama2 4096 embedding dimension (dmodel)
-num_heads = 32  # 16 or 32
-
-# Test Configuration
-num_layers = 32
-num_steps = 128
-norm_layer = LayerNorm(embedding_dim)
 
 
 def free_mem():
@@ -61,17 +55,17 @@ def main():
     out3 = hidden_states.clone()
 
     free_mem()
-    mha_naive = [AttentionNaive(embedding_dim, num_heads) for _ in range(num_layers)]
+    mha_naive = [AttentionNaive(embedding_dim, num_qkv_heads) for _ in range(num_hidden_layers)]
     out1 = test_attn(hidden_states, mha_naive, num_steps, 'NAIVE')
     mha_naive.clear()
 
     free_mem()
-    mha_xformers = [AttentionXformers(embedding_dim, num_heads) for _ in range(num_layers)]
+    mha_xformers = [AttentionXformers(embedding_dim, num_qkv_heads) for _ in range(num_hidden_layers)]
     out2 = test_attn(hidden_states, mha_xformers, num_steps, 'XFORMERS')
     mha_xformers.clear()
 
     free_mem()
-    mha_sdpa = [AttentionSdpa(embedding_dim, num_heads) for _ in range(num_layers)]
+    mha_sdpa = [AttentionSdpa(embedding_dim, num_qkv_heads) for _ in range(num_hidden_layers)]
     out3 = test_attn(hidden_states, mha_sdpa, num_steps, 'SDPA')
     mha_sdpa.clear()
 
