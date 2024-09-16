@@ -16,6 +16,7 @@ class AttentionNaive(nn.Module):
         self.head_size = embedding_dim // num_qkv_heads
 
     def forward(self, hidden_states: torch.Tensor):
+        # [seq_len, hidden_dim] (no batching)
         seq_length = hidden_states.size(0)
 
         q1 = self.q_proj(hidden_states)

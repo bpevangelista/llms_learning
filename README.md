@@ -74,12 +74,13 @@ v = nn.Linear(embedding_dim, embedding_dim, bias=False)
 
 def multi_head_attention_naive(input_embd: torch.Tensor,
                                num_heads: int) -> torch.Tensor:
+    # [seq_len, hidden_dim] (no batching)
+    seq_length = input_embd.size(0)
+    head_length = embedding_dim // num_heads
+
     q1 = q(input_embd)
     k1 = k(input_embd)
     v1 = v(input_embd)
-
-    seq_length = input_embd.size(0)
-    head_length = embedding_dim // num_heads
 
     # We work on per-head sequences (no batching for now)
     # Rearrange data as [num_heads, seq_length, head_length]
@@ -104,8 +105,8 @@ def multi_head_attention_naive(input_embd: torch.Tensor,
 
 ```python
 # Does mean and std normalization, then applies learned weight and bias
-post_attn_norm_layer = nn.LayerNorm(embedding_dim) # learnable
-post_ffn_norm_layer = nn.LayerNorm(embedding_dim) # learnable
+post_attn_norm_layer = nn.LayerNorm(embedding_dim)  # learnable
+post_ffn_norm_layer = nn.LayerNorm(embedding_dim)   # learnable
 
 def post_attention_norm(input_embd: torch.Tensor) -> torch.Tensor:
     return post_attn_norm_layer(input_embd)
@@ -121,7 +122,7 @@ def post_feed_forward_norm(input_embd: torch.Tensor) -> torch.Tensor:
 ffn_linear1 = nn.Linear(embedding_dim, 4 * embedding_dim)
 ffn_linear2 = nn.Linear(4 * embedding_dim, embedding_dim)
 ffn_act = nn.ReLU()
-ffn_drop = nn.Dropout(0.0) # Training-only, discard X% to avoid overfit
+ffn_drop = nn.Dropout(0.0) # Training-only, drops x% to avoid overfit
   
 def feed_forward_naive(input_embd: torch.Tensor):
     hidden_states = ffn_linear1(input_embd)
@@ -135,33 +136,38 @@ def feed_forward_naive(input_embd: torch.Tensor):
 
 ```python
 prompt = 'Which fruits do you like?'
-input_ids = tokenizer.encode(prompt, return_tensors="pt")
-positional_encoding = build_absolute_positional_encoding_naive()
+input_ids = tokenizer.encode(prompt, return_tensors="pt").squeeze(0)  # remove batching
+llm_model(input_ids)
+
+# llm_model forward()
+self.vocab_eos_token = '<|end_of_text|>'
+self.positional_encoding = build_absolute_positional_encoding_naive()
+has_finished = False
 
 while not has_finished:
-    hidden_states = vocab_embedding(input_ids)
+    hidden_states = self.vocab_embedding(input_ids)
     # [seq_len, hidden_dim] (no batching)
     seq_length = hidden_states.size(0)
     # On naive, applies positional_encoding to Q, K, V
-    hidden_states = hidden_states + positional_encoding[:seq_length]
+    hidden_states = hidden_states + self.positional_encoding[:seq_length]
     
-    for layer in decoder:
+    for layer in self.decoder:
         # On naive, num_heads is the same across Q, K, V
         residual = hidden_states
-        hidden_states = multi_head_attention_naive(hidden_states, num_heads=32)
-        hidden_states = post_attention_norm(residual + hidden_states)
+        hidden_states = layer.multi_head_attention_naive(hidden_states)
+        hidden_states = layer.post_attention_norm(residual + hidden_states)
         
         residual = hidden_states
-        hidden_states = feed_forward_naive(hidden_states)
-        hidden_states = post_feed_forward_norm(residual + hidden_states)
+        hidden_states = layer.feed_forward_naive(hidden_states)
+        hidden_states = layer.post_feed_forward_norm(residual + hidden_states)
 
-    logits = lm_head(hidden_states)
+    logits = self.lm_head(hidden_states)
 
     # Greedy sampling over last/most-recent next-token
     next_token_id = torch.argmax(logits[-1, :])
     input_ids = torch.cat([input_ids, next_token_id.unsqueeze(0)])
 
-    if next_token_id.item() == tokenizer.eos_token_id:
+    if len(input_ids) >= self.max_seq_length or next_token_id.item() == self.vocab_eos_token:
         has_finished = True
 ```
 
