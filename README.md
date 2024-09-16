@@ -282,6 +282,18 @@ Test: 100 iterations of 32 attention layers (xavier_normal_ initialized)
 
 ## LLMs References and Innovations
 
+### Phy 3 (May 2024, Microsoft)
+
+### Llama 3 (Apr 2024, Meta)
+
+- Llama 3-8B vs Llama 2-7B
+  - Vocabulary Size ~125k vs 32k
+  - Context Length 8k vs 4k
+  - Grouped Query Attention (32xQ, 8xKV)
+  - MLP up-proj size 14k vs ~11k
+  - dtype bfloat16 vs float16
+  - 32 layers in both
+
 ### Mamba (2023, Stanford)
 
 https://github.com/havenhq/mamba-chat  
