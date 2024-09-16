@@ -140,7 +140,7 @@ positional_encoding = build_absolute_positional_encoding_naive()
 
 while not has_finished:
     hidden_states = vocab_embedding(input_ids)
-    # [seq_len, hidden_dim]
+    # [seq_len, hidden_dim] (no batching)
     seq_length = hidden_states.size(0)
     # On naive, applies positional_encoding to Q, K, V
     hidden_states = hidden_states + positional_encoding[:seq_length]
@@ -156,6 +156,13 @@ while not has_finished:
         hidden_states = post_feed_forward_norm(residual + hidden_states)
 
     logits = lm_head(hidden_states)
+
+    # Greedy sampling over last/most-recent next-token
+    next_token_id = torch.argmax(logits[-1, :])
+    input_ids = torch.cat([input_ids, next_token_id.unsqueeze(0)])
+
+    if next_token_id.item() == tokenizer.eos_token_id:
+        has_finished = True
 ```
 
 ### Multi-Head Self-Attention (2024) SOTA Implementations
