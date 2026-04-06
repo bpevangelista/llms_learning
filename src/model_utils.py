@@ -38,8 +38,8 @@ def build_absolute_positional_encoding_naive(embedding_dim: int, max_seq_length:
     positions = positions.unsqueeze(1)  # [0,1,2, ... max_seq_length][]
     embeddings = torch.arange(embedding_dim)  # [0,1,2, ... embedding_dim]
 
-    # pos/10000^(2i/dmodel)
-    angle = positions / torch.pow(10000, (2 * embeddings / embedding_dim))
+    # pos/10000^(2i/dmodel) — embeddings // 2 so sin/cos share pairs
+    angle = positions / torch.pow(10000, (2 * (embeddings // 2) / embedding_dim))
 
     # PE(pos, 2i+0) = sin( pos/10000^(2i/dmodel) )
     # PE(pos, 2i+1) = cos( pos/10000^(2i/dmodel) )

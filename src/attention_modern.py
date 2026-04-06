@@ -9,8 +9,8 @@ def build_rotary_positional_embedding(embedding_dim: int, max_seq_length: int) -
     return torch.zeros(max_seq_length, embedding_dim)  # dummy
 
 
-def apply_rotary_positional_embedding(query: torch.Tensor, value: torch.Tensor, position_ids: torch.Tensor):
-    return query, value
+def apply_rotary_positional_embedding(query: torch.Tensor, key: torch.Tensor, position_ids: torch.Tensor):
+    return query, key
 
 
 def build_qkv_proj(embedding_dim: int) -> torch.Tensor:
@@ -45,10 +45,12 @@ class AttentionModern(nn.Module):
 
         # Note: Non KV-Cached Step
 
-        # Multi-Head Reshape. [batch, seq, embd] -> [batch*seq, num_heads, head_size]
-        query = query.view(-1, self.num_heads, self.head_size)
-        key = key.view(-1, self.num_heads, self.head_size)
-        value = value.view(-1, self.num_heads, self.head_size)
+        # Multi-Head Reshape. [batch, seq, embd] -> [batch, seq, num_heads, head_size]
+        batch_size = hidden_states.size(0)
+        seq_len = hidden_states.size(1)
+        query = query.view(batch_size, seq_len, self.num_heads, self.head_size)
+        key = key.view(batch_size, seq_len, self.num_heads, self.head_size)
+        value = value.view(batch_size, seq_len, self.num_heads, self.head_size)
         return query, key, value
 
 
@@ -61,9 +63,10 @@ class AttentionXformers(AttentionModern):
         seq_length = hidden_states.size(1)
         query, key, value = self._proj_and_pos_encode(hidden_states, position_ids)
 
+        # XFormers expects [batch, seq, heads, head_dim]
         attn_bias = xformers.ops.fmha.BlockDiagonalMask.from_seqlens([seq_length] * batches)
         mh_attn_out = xformers.ops.memory_efficient_attention_forward(
-            query.unsqueeze(0), key.unsqueeze(0), value.unsqueeze(0), attn_bias=attn_bias,
+            query, key, value, attn_bias=attn_bias,
         )
 
         mh_attn_out = mh_attn_out.reshape(batches, seq_length, self.embedding_dim)
@@ -80,10 +83,15 @@ class AttentionSdpa(AttentionModern):
         seq_length = hidden_states.size(1)
         query, key, value = self._proj_and_pos_encode(hidden_states, position_ids)
 
+        # SDPA expects [batch, heads, seq, head_dim]
+        query = query.transpose(1, 2)
+        key = key.transpose(1, 2)
+        value = value.transpose(1, 2)
+
         mh_attn_out = torch.nn.functional.scaled_dot_product_attention(
             query, key, value, attn_mask=None, is_causal=True,
         )
 
-        mh_attn_out = mh_attn_out.reshape(batches, seq_length, self.embedding_dim)
+        mh_attn_out = mh_attn_out.transpose(1, 2).reshape(batches, seq_length, self.embedding_dim)
         mh_attn_out = F.linear(mh_attn_out, self.out_proj)
         return mh_attn_out

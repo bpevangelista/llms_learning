@@ -15,7 +15,7 @@ class AttentionNaive(nn.Module):
         self.num_heads = num_qkv_heads
         self.head_size = embedding_dim // num_qkv_heads
 
-    def forward(self, hidden_states: torch.Tensor):
+    def forward(self, hidden_states: torch.Tensor, position_ids: torch.Tensor = None):
         # [seq_len, hidden_dim] (no batching)
         seq_length = hidden_states.size(0)
 
@@ -32,6 +32,11 @@ class AttentionNaive(nn.Module):
         # q * k_transposed / sqrt(dk)
         dk = self.head_size
         qk = q2.matmul(k2.transpose(-2, -1)) / math.sqrt(dk)
+
+        # Causal mask
+        inf_full = torch.full((seq_length, seq_length), float('-inf'), device=qk.device)
+        causal_mask = torch.triu(inf_full, diagonal=1)
+        qk = qk + causal_mask
 
         # out = softmax(qk) * v (no out projection for now)
         mh_attn = nn.functional.softmax(qk, dim=-1)
@@ -77,21 +82,30 @@ class DecoderLayerNaive(nn.Module):
         self.post_feed_forward_norm = LayerNormNaive(embedding_dim)
 
 
-class TransformerDecoder(nn.Module):
+class TransformerConfig:
     def __init__(self, vocab_size: int, num_hidden_layers: int, max_seq_length: int, embedding_dim: int,
-                 num_qkv_heads: int):
-        super().__init__()
+                 num_qkv_heads: int, bos_token_id: int = 1, eos_token_id: int = 2, pad_token_id: int = 2):
+        self.vocab_size = vocab_size
+        self.num_hidden_layers = num_hidden_layers
         self.max_seq_length = max_seq_length
-        self.vocab_bos_token = '<|begin_of_text|>'
-        self.vocab_eos_token = '<|end_of_text|>'
-        self.vocab_pad_token = '<|end_of_text|>'
+        self.embedding_dim = embedding_dim
+        self.num_qkv_heads = num_qkv_heads
+        self.bos_token_id = bos_token_id
+        self.eos_token_id = eos_token_id
+        self.pad_token_id = pad_token_id
 
-        self.vocab_embedding = nn.Embedding(vocab_size, embedding_dim)
-        self.lm_head = nn.Linear(embedding_dim, vocab_size, bias=False)
 
-        self.positional_encoding = utils.build_absolute_positional_encoding_naive(embedding_dim, max_seq_length)
+class TransformerDecoder(nn.Module):
+    def __init__(self, config: TransformerConfig):
+        super().__init__()
+        self.config = config
+
+        self.vocab_embedding = nn.Embedding(config.vocab_size, config.embedding_dim)
+        self.lm_head = nn.Linear(config.embedding_dim, config.vocab_size, bias=False)
+
+        self.positional_encoding = utils.build_absolute_positional_encoding_naive(config.embedding_dim, config.max_seq_length)
         self.decoder = nn.ModuleList(
-            [DecoderLayerNaive(embedding_dim, num_qkv_heads) for layer in range(num_hidden_layers)]
+            [DecoderLayerNaive(config.embedding_dim, config.num_qkv_heads) for layer in range(config.num_hidden_layers)]
         )
 
     def forward(self, input_ids: torch.Tensor):
@@ -122,7 +136,7 @@ class TransformerDecoder(nn.Module):
             print(f'input_ids shape: {input_ids.shape}')
             # print(f'{input_ids}')
 
-            if len(input_ids) >= self.max_seq_length or next_token_id[0] == self.vocab_eos_token:
+            if len(input_ids) >= self.config.max_seq_length or next_token_id[0] == self.config.eos_token_id:
                 has_finished = True
 
 
@@ -136,7 +150,9 @@ def main():
     num_decoder_layers = 1
 
     tokenizer = utils.get_tokenizer('facebook/opt-350m')
-    llm = TransformerDecoder(vocab_size, num_decoder_layers, max_seq_length, embedding_dim, num_qkv_heads)
+    config = TransformerConfig(vocab_size, num_decoder_layers, max_seq_length, embedding_dim, num_qkv_heads,
+                               eos_token_id=tokenizer.eos_token_id)
+    llm = TransformerDecoder(config)
 
     prompt = 'Which fruits do you like?'
     input_ids = tokenizer.encode(prompt, return_tensors='pt').squeeze(0)  # remove batching

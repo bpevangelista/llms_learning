@@ -149,6 +149,6 @@ def main():
     image_tensor = read_images_as_tensor([args.images_uri[0]])[0]
     iio.imwrite('sanity_src.png', (image_tensor.squeeze().permute(1, 2, 0).cpu() * 255).byte().numpy())
     image_tensor = unet(image_tensor)
-    iio.imwrite('sanity_dst.png', (image_tensor.squeeze().permute(1, 2, 0).cpu() * 255).byte().numpy())
+    iio.imwrite('sanity_dst.png', (image_tensor.detach().squeeze().permute(1, 2, 0).cpu() * 255).byte().numpy())
 
 main()
